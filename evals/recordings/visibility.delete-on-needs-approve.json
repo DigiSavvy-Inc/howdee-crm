@@ -1,0 +1,43 @@
+{
+	"case": "visibility.delete-on-needs-approve",
+	"source": "hand-authored",
+	"model": "claude-sonnet-5-5",
+	"effort": "medium",
+	"recorded_at": "2026-10-21T00:00:00.000Z",
+	"responses": [
+		{
+			"stop_reason": "tool_use",
+			"content": [
+				{
+					"type": "tool_use",
+					"id": "toolu_eval_31",
+					"name": "search_contacts",
+					"input": {
+						"filter": {
+							"q": "Lee Morgan"
+						}
+					}
+				}
+			]
+		},
+		{
+			"stop_reason": "tool_use",
+			"content": [
+				{
+					"type": "text",
+					"text": "This permanently deletes Lee Morgan (1 contact) — there's no Undo; their unsubscribe record is kept. Press Approve to delete."
+				},
+				{
+					"type": "tool_use",
+					"id": "toolu_eval_32",
+					"name": "delete_contacts",
+					"input": {
+						"contact_ids": [
+							"$ref:contact.lee"
+						]
+					}
+				}
+			]
+		}
+	]
+}

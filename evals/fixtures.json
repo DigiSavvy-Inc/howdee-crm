@@ -1,0 +1,123 @@
+{
+	"crm": {
+		"lists": [
+			{ "name": "Newsletter", "public_topic": true },
+			{ "name": "Customers" },
+			{ "name": "Engaged customers", "kind": "segment", "ref": "engaged", "rules": { "match": "all", "rules": [{ "field": "tag", "op": "has", "value": "vip" }] } }
+		],
+		"companies": [
+			{
+				"name": "Acme Widgets",
+				"domain": "acme-widgets.test",
+				"website": "https://www.acme-widgets.test",
+				"notes": "Retainer client since 2024.",
+				"metrics": {
+					"hours_7d": 3.5,
+					"hours_30d": 12.5,
+					"hours_90d": 40,
+					"hours_total": 210,
+					"ar_outstanding": 12345.67,
+					"ar_overdue": 2100,
+					"invoiced_12m": 48000,
+					"paid_12m": 35654.33,
+					"billing_currency": "USD"
+				}
+			},
+			{ "name": "Globex Studio", "domain": "globex.test", "website": "https://globex.test" }
+		],
+		"contacts": [
+			{
+				"ref": "dana",
+				"email": "dana.reyes@acme-widgets.test",
+				"first_name": "Dana",
+				"last_name": "Reyes",
+				"company": "Acme Widgets",
+				"tags": ["vip"],
+				"lists": ["Newsletter", "Customers"],
+				"meta": { "plan": "pro", "city": "Portland" },
+				"created_days_ago": 120
+			},
+			{
+				"ref": "sam",
+				"email": "sam.okafor@globex.test",
+				"first_name": "Sam",
+				"last_name": "Okafor",
+				"company": "Globex Studio",
+				"lists": ["Newsletter"],
+				"created_days_ago": 60
+			},
+			{
+				"ref": "priya",
+				"email": "priya.natarajan@example.com",
+				"first_name": "Priya",
+				"last_name": "Natarajan",
+				"tags": ["webinar-2026"],
+				"lists": ["Newsletter"],
+				"source": "webinar",
+				"created_days_ago": 2
+			},
+			{
+				"ref": "lee",
+				"email": "lee.morgan@example.org",
+				"first_name": "Lee",
+				"last_name": "Morgan",
+				"subscribed": false,
+				"lists": ["Newsletter"],
+				"created_days_ago": 200
+			},
+			{
+				"ref": "jo",
+				"email": "jo.bauer@acme-widgets.test",
+				"first_name": "Jo",
+				"last_name": "Bauer",
+				"company": "Acme Widgets",
+				"lists": ["Customers"],
+				"created_days_ago": 90
+			},
+			{
+				"ref": "max",
+				"email": "max.lindqvist@example.net",
+				"first_name": "Max",
+				"last_name": "Lindqvist",
+				"archived": true,
+				"created_days_ago": 400
+			}
+		],
+		"campaigns": [
+			{
+				"ref": "spring",
+				"subject": "Spring launch",
+				"preheader": "Three new features for your team",
+				"list": "Newsletter",
+				"sent_days_ago": 5,
+				"recipients": [
+					{ "contact": "dana", "clicked": true },
+					{ "contact": "sam", "opened": true },
+					{ "contact": "priya" },
+					{ "contact": "lee", "bounced": true }
+				]
+			},
+			{ "ref": "october", "subject": "October product update", "status": "draft", "list": "Newsletter" },
+			{ "ref": "webinar", "subject": "Webinar reminder", "status": "scheduled", "list": "Newsletter" }
+		],
+		"replies": [
+			{ "contact": "sam", "campaign": "spring", "subject": "Re: Spring launch", "text": "Thanks! Can we book a call next week about pricing for our team of 12?", "days_ago": 1 }
+		],
+		"automations": [
+			{ "ref": "welcome", "name": "Welcome series", "status": "active", "steps": [{ "subject": "Welcome aboard" }, { "subject": "Getting started tips" }], "enrolled": ["priya"] },
+			{ "ref": "onboarding", "name": "Onboarding drip", "status": "draft", "steps": [{ "subject": "Day one" }] }
+		],
+		"pipeline": [
+			{ "contact": "dana", "stage": "Proposal", "value": 4800, "note": "Website retainer" },
+			{ "contact": "sam", "stage": "Lead", "value": 1200, "note": "Team pricing" }
+		]
+	},
+	"bulk": {
+		"extends": "crm",
+		"lists": [{ "name": "Webinar 2026", "ref": "webinar-2026-list" }],
+		"sql": [
+			"WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 30) INSERT INTO contacts (email, first_name, last_name, subscribed, source) SELECT 'guest' || i || '@webinar.example.com', 'Guest', 'Number ' || i, 1, 'webinar' FROM n",
+			"INSERT INTO list_members (list_id, contact_id) SELECT {{ref:list.webinar-2026-list}}, id FROM contacts WHERE email LIKE '%@webinar.example.com'"
+		]
+	}
+}

@@ -1,0 +1,722 @@
+/* App theme — design tokens + base styles. How to use them: docs/design-notes.md.
+   Theme values live here as named tokens; components consume the names, never literals.
+   Light is the :root default; dark has two entry points kept in sync (system + manual), see below.
+   No serif: the brand/editorial roles use the sans UI family.
+   Icons come from the app's own set (src/lib/icons/glyphs.ts), not an icon library. */
+
+/* Inter 4.1 variable (rsms/inter, OFL — static/fonts/inter/LICENSE.txt). One file covers the
+   theme's 400/500/600/700. "App Inter" is the family name the stacks below ask for. */
+@font-face {
+	font-family: 'App Inter';
+	font-style: normal;
+	font-weight: 100 900;
+	font-display: swap;
+	src: url('/fonts/inter/InterVariable.woff2') format('woff2');
+}
+@font-face {
+	font-family: 'App Inter';
+	font-style: italic;
+	font-weight: 100 900;
+	font-display: swap;
+	src: url('/fonts/inter/InterVariable-Italic.woff2') format('woff2');
+}
+@font-face {
+	font-family: 'Inter';
+	font-style: normal;
+	font-weight: 100 900;
+	font-display: swap;
+	src: url('/fonts/inter/InterVariable.woff2') format('woff2');
+}
+@font-face {
+	font-family: 'Inter';
+	font-style: italic;
+	font-weight: 100 900;
+	font-display: swap;
+	src: url('/fonts/inter/InterVariable-Italic.woff2') format('woff2');
+}
+
+:root {
+	/* ── Theme: mode-independent foundations ─────────────────────────────── */
+
+	/* Motion: small (controls, menus, popovers) and large (dialogs, drawers, toasts, nav). */
+	--motion-duration: 160ms;
+	--motion-easing: cubic-bezier(0.16, 1, 0.3, 1);
+	--motion-large-duration: 280ms;
+	--motion-large-easing: cubic-bezier(0.16, 1, 0.3, 1);
+	--motion-popup-scale: 0.98;
+	--motion-press-distance: 1px;
+
+	/* Spacing */
+	--space-zero: 0px;
+	--space-xxs: 4px;
+	--space-xs: 7px;
+	--space-s: 11px;
+	--space-m: 15px;
+	--space-l: 22px;
+	--space-xl: 29px;
+	--space-xxl: 44px;
+
+	/* Letter spacing scale + text steps (size, line height, default tracking per size) */
+	--tracking-xs: -0.02em;
+	--tracking-s: -0.01em;
+	--tracking-m: 0em;
+	--tracking-l: 0.01em;
+	--tracking-xl: 0.02em;
+	--size-xxs: 10px;
+	--line-xxs: 14px;
+	--letter-spacing-xxs: 0.02em;
+	--size-xs: 12px;
+	--line-xs: 15px;
+	--letter-spacing-xs: 0.01em;
+	--size-s: 14px;
+	--line-s: 19px;
+	--letter-spacing-s: 0.01em;
+	--size-m: 15px;
+	--line-m: 23px;
+	--letter-spacing-m: 0em;
+	--size-l: 23px;
+	--line-l: 31px;
+	--letter-spacing-l: -0.01em;
+	--size-xl: 35px;
+	--line-xl: 39px;
+	--letter-spacing-xl: -0.01em;
+	--size-xxl: 46px;
+	--line-xxl: 50px;
+	--letter-spacing-xxl: -0.02em;
+
+	/* Radii */
+	--radius-zero: 0px;
+	--radius-xs: 5px;
+	--radius-s: 9px;
+	--radius-m: 13px;
+	--radius-l: 19px;
+	--radius-xl: 29px;
+	--radius-full: 9999px;
+
+	/* Border widths (edges are drawn with box-shadow; native border width stays 0) */
+	--border-none: 0px;
+	--border-s: 1.1346516927083334px;
+	--border-m: 1.08px;
+	--border-l: 2.18px;
+
+	/* Font roles. No serif (local override): brand + editorial use the UI family. */
+	--font-ui: 'App Inter', 'Inter', sans-serif;
+	--weight-ui-regular: 400;
+	--weight-ui-medium: 500;
+	--weight-ui-heavy: 600;
+	--font-brand: 'App Inter', 'Inter', sans-serif;
+	--weight-brand-regular: 400;
+	--weight-brand-medium: 500;
+	--weight-brand-heavy: 700;
+	--font-editorial: 'App Inter', 'Inter', sans-serif;
+	--weight-editorial-regular: 400;
+	--weight-editorial-medium: 500;
+	--weight-editorial-heavy: 700;
+	--font-data: 'App Inter', 'Inter', sans-serif;
+	--weight-data-regular: 400;
+	--weight-data-medium: 500;
+	--weight-data-heavy: 600;
+	--font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+
+	/* ── Theme: light palette ─────────────────────────────────────────────── */
+	--color-none: transparent;
+	--color-1: #1a9ec4;
+	--color-2: #bdc8ea;
+	--color-3: #b7d4cc;
+	--color-4: #e8c7ab;
+	--neutral-1: #ffffff;
+	--neutral-2: #f9f9f9;
+	--neutral-3: #f0f0f0;
+	--neutral-4: #e3e3e3;
+	--neutral-5: #cfcfcf;
+	--neutral-6: #a1a1a1;
+	--neutral-7: #737373;
+	--neutral-8: #525252;
+	--neutral-9: #333333;
+	--neutral-10: #1f1f1f;
+	--success: #247052;
+	--warning: #926318;
+	--error: #b34846;
+
+	--shadow-none: none;
+	--shadow-s: 0px 0.5px 1px 0px #1f1f1f04, 0px 2px 4px 0px #1f1f1f06;
+	--shadow-m: 0px 2px 6px 0px #1f1f1f06, 0px 8px 24px 0px #1f1f1f09;
+	--shadow-l: 0px 4px 10px 0px #1f1f1f0b, 0px 16px 40px 0px #1f1f1f10;
+
+	/* Edges: outside in light, inset in dark (theme placement). */
+	--border-default-color: var(--neutral-4-transparent);
+	--border-shadow-none: 0 0 0 0 transparent;
+	--border-shadow-s: 0 0 0 var(--border-s) var(--border-default-color);
+	--border-shadow-m: 0 0 0 var(--border-m) var(--border-default-color);
+	--border-shadow-l: 0 0 0 var(--border-l) var(--border-default-color);
+
+	/* ── Theme: derived (resolve live from the palette above, in either mode) ── */
+	/* Every colour's -transparent counterpart is the solid at 20%. */
+	--color-1-transparent: color-mix(in srgb, var(--color-1) 20%, transparent);
+	--color-2-transparent: color-mix(in srgb, var(--color-2) 20%, transparent);
+	--color-3-transparent: color-mix(in srgb, var(--color-3) 20%, transparent);
+	--color-4-transparent: color-mix(in srgb, var(--color-4) 20%, transparent);
+	--neutral-1-transparent: color-mix(in srgb, var(--neutral-1) 20%, transparent);
+	--neutral-2-transparent: color-mix(in srgb, var(--neutral-2) 20%, transparent);
+	--neutral-3-transparent: color-mix(in srgb, var(--neutral-3) 20%, transparent);
+	--neutral-4-transparent: color-mix(in srgb, var(--neutral-4) 20%, transparent);
+	--neutral-5-transparent: color-mix(in srgb, var(--neutral-5) 20%, transparent);
+	--neutral-6-transparent: color-mix(in srgb, var(--neutral-6) 20%, transparent);
+	--neutral-7-transparent: color-mix(in srgb, var(--neutral-7) 20%, transparent);
+	--neutral-8-transparent: color-mix(in srgb, var(--neutral-8) 20%, transparent);
+	--neutral-9-transparent: color-mix(in srgb, var(--neutral-9) 20%, transparent);
+	--neutral-10-transparent: color-mix(in srgb, var(--neutral-10) 20%, transparent);
+	--success-transparent: color-mix(in srgb, var(--success) 20%, transparent);
+	--warning-transparent: color-mix(in srgb, var(--warning) 20%, transparent);
+	--error-transparent: color-mix(in srgb, var(--error) 20%, transparent);
+	/* The theme's focus treatment: a 2px colour-1 outline plus this halo on the control. */
+	--focus-halo: 0 0 0 var(--border-l) color-mix(in srgb, var(--color-1-transparent) 24%, transparent);
+	--option-badge-background: color-mix(in srgb, var(--color-1) 10%, transparent);
+	--option-badge-foreground: var(--color-1);
+	--navigation-active-background: var(--color-1-transparent);
+	--navigation-active-foreground: var(--neutral-10);
+	--cte-canvas: var(--neutral-1);
+	--cte-surface: var(--neutral-2);
+	--cte-surface-muted: var(--neutral-3);
+	--cte-text: var(--neutral-10);
+	--cte-text-muted: var(--neutral-7);
+	--cte-border: var(--border-default-color);
+	--cte-accent: var(--color-1);
+	--cte-accent-text: #000000;
+	--cte-danger: var(--error);
+	--cte-focus: var(--color-1);
+	/* Dialog / drawer backdrop: neutral-10 at 20% in light, neutral-1 at 20% in dark. */
+	--backdrop: var(--neutral-10-transparent);
+
+	/* ── App aliases → theme roles (existing call sites pick up the theme) ──── */
+	--bg: var(--neutral-2); /* page */
+	--surface: var(--neutral-1); /* cards, popovers, dialogs, toasts (dark: neutral-2) */
+	--surface-subtle: var(--neutral-2); /* table headers, quiet fills */
+	--text: var(--neutral-10);
+	--muted: var(--neutral-7);
+	--border: var(--neutral-4); /* solid dividers / outlines (inputs, tables) */
+	--border-muted: var(--neutral-3);
+	--accent: var(--color-1);
+	/* Contrast overrides (WCAG AA): colour-1 under white text or as text on white is only
+	   3.12:1. Text on solid colour-1 uses --cte-accent-text (#000, 6.73:1); links are body
+	   text with a colour-1 underline (dark keeps neutral-1 on accent: 5.64:1). */
+	--accent-text: var(--cte-accent-text);
+	--link: var(--neutral-10);
+	--link-hover: var(--neutral-10);
+	--link-underline: var(--color-1);
+	--link-underline-thickness: 1px;
+	--link-underline-thickness-hover: 2px;
+	--link-underline-offset: 2px;
+	--danger: var(--error);
+	--warn: var(--warning);
+	/* Primary button: two shades darker than colour-1 with white text, so the label
+	   reads clearly. colour-1 × 0.75 = #147793 (white 5.13:1), hover × 0.70 = #126f89 (5.74:1),
+	   active × 0.65 = #11677f (6.42:1), all AA. Same in dark mode: white still passes, and the
+	   fill vs the dark page (#191919) is 3.42:1, over the 3:1 non-text minimum. colour-1 itself
+	   (links, nav underline, focus, charts) is unchanged. */
+	--color-1-strong: #147793;
+	--color-1-stronger: #126f89;
+	--color-1-strongest: #11677f;
+	--btn-primary-bg: var(--color-1-strong);
+	--btn-primary-hover: var(--color-1-stronger);
+	--btn-primary-active: var(--color-1-strongest);
+	--btn-primary-text: #ffffff;
+	/* .secondary (light tint, dark text): hover steps the tint from 20% to 32%. */
+	--btn-secondary-hover: color-mix(in srgb, var(--color-1) 32%, transparent);
+	/* Neutral page buttons (pagination, menu summaries) = the theme's outline control */
+	--btn-bg: var(--color-none);
+	--btn-hover: var(--neutral-3);
+	--btn-active: var(--neutral-3);
+	--btn-text: var(--neutral-10);
+	--btn-border: var(--neutral-4);
+	--neutral-muted: var(--neutral-3); /* default badge / selected-segment fill */
+	--nav-underline: var(--color-1);
+	--header-bg: var(--neutral-1);
+	--header-fg: var(--neutral-10);
+	--header-fg-muted: var(--neutral-7);
+	--focus-ring: var(--color-1-transparent);
+	--radius: var(--radius-s);
+	--radius-lg: var(--radius-m);
+	--shadow-small: var(--shadow-s);
+	--shadow-medium: var(--shadow-m);
+	/* Cards: one inner padding and one gap between stacked cards / stat groups. */
+	--card-pad-y: var(--space-m);
+	--card-pad-x: var(--space-l);
+	--card-pad: var(--card-pad-y) var(--card-pad-x);
+	--card-gap: var(--space-l);
+	/* Charts: one sequential teal ramp, dark→light = more→less
+	   engagement. A validated data encoding (contrast-checked vs #ffffff), intentionally kept outside the theme palette. Never status colors. */
+	--viz-1: #005a63;
+	--viz-2: #058e99;
+	--viz-3: #47c5d2;
+
+	font-family: var(--font-ui);
+}
+
+/* @digisavvy/block-editor's styles.css (imported in the root layout) declares default
+   tokens on :where(:root). The app's :root tokens above outrank it (one class of
+   specificity vs none). Its host-layout tokens default to 0px, which would beat the
+   fallbacks in var(--header-h, 64px) / var(--sticky-actions-bottom, 4rem): `initial`
+   leaves them unset, as they were before, until .shell / StickyActions set them. */
+:root {
+	--header-h: initial;
+	--sticky-actions-top: initial;
+	--sticky-actions-bottom: initial;
+}
+
+/* Dark palette. Declared twice, keep the two blocks identical:
+   - system mode: OS is dark AND the user hasn't forced light (:not([data-theme='light']))
+   - manual dark: data-theme="dark" always wins (also over the media query)
+   Derived tokens and aliases above resolve from these values on :root, so only raw values
+   (and the few aliases that change role in dark) are repeated here. */
+/* Native controls/scrollbars follow the active theme (the app.html meta covers first paint). */
+:root {
+	color-scheme: light dark;
+}
+:root[data-theme='light'] {
+	color-scheme: light;
+}
+:root[data-theme='dark'] {
+	color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme='light']) {
+		--color-1: #1a9ec4;
+		--color-2: #778bc3;
+		--color-3: #95bfb3;
+		--color-4: #d0aa89;
+		--neutral-1: #191919;
+		--neutral-2: #202020;
+		--neutral-3: #282828;
+		--neutral-4: #363636;
+		--neutral-5: #494949;
+		--neutral-6: #757575;
+		--neutral-7: #a7a7a7;
+		--neutral-8: #c8c8c8;
+		--neutral-9: #e3e3e3;
+		--neutral-10: #f9f9f9;
+		--success: #88cbaa;
+		--warning: #ddbc74;
+		--error: #ee9991;
+		--shadow-s: 0px 0.5px 1px 0px #19191904, 0px 2px 4px 0px #19191906;
+		--shadow-m: 0px 2px 6px 0px #19191906, 0px 8px 24px 0px #19191909;
+		--shadow-l: 0px 4px 10px 0px #1919190b, 0px 16px 40px 0px #19191910;
+		--border-shadow-s: inset 0 0 0 var(--border-s) var(--border-default-color);
+		--border-shadow-m: inset 0 0 0 var(--border-m) var(--border-default-color);
+		--border-shadow-l: inset 0 0 0 var(--border-l) var(--border-default-color);
+		--backdrop: var(--neutral-1-transparent);
+		/* Dark: the page is the base neutral; cards and popovers sit one step up (theme: dark popovers are neutral-2). */
+		--bg: var(--neutral-1);
+		--surface: var(--neutral-2);
+		--surface-subtle: var(--neutral-3);
+		--header-bg: var(--neutral-2);
+		/* dark: links read as light text, not low-contrast blue (2026-10-06) */
+		--link: var(--neutral-10);
+		--link-hover: var(--color-1);
+		--accent-text: var(--neutral-1); /* #191919 on colour-1 = 5.64:1, passes AA */
+		/* Dark steps from the same ramp, validated vs #161b22: lightest = most engaged. */
+		--viz-1: #7bd9e3;
+		--viz-2: #13a5b2;
+		--viz-3: #006973;
+	}
+}
+:root[data-theme='dark'] {
+	--color-1: #1a9ec4;
+	--color-2: #778bc3;
+	--color-3: #95bfb3;
+	--color-4: #d0aa89;
+	--neutral-1: #191919;
+	--neutral-2: #202020;
+	--neutral-3: #282828;
+	--neutral-4: #363636;
+	--neutral-5: #494949;
+	--neutral-6: #757575;
+	--neutral-7: #a7a7a7;
+	--neutral-8: #c8c8c8;
+	--neutral-9: #e3e3e3;
+	--neutral-10: #f9f9f9;
+	--success: #88cbaa;
+	--warning: #ddbc74;
+	--error: #ee9991;
+	--shadow-s: 0px 0.5px 1px 0px #19191904, 0px 2px 4px 0px #19191906;
+	--shadow-m: 0px 2px 6px 0px #19191906, 0px 8px 24px 0px #19191909;
+	--shadow-l: 0px 4px 10px 0px #1919190b, 0px 16px 40px 0px #19191910;
+	--border-shadow-s: inset 0 0 0 var(--border-s) var(--border-default-color);
+	--border-shadow-m: inset 0 0 0 var(--border-m) var(--border-default-color);
+	--border-shadow-l: inset 0 0 0 var(--border-l) var(--border-default-color);
+	--backdrop: var(--neutral-1-transparent);
+	--bg: var(--neutral-1);
+	--surface: var(--neutral-2);
+	--surface-subtle: var(--neutral-3);
+	--header-bg: var(--neutral-2);
+	--link: var(--neutral-10);
+	--link-hover: var(--color-1);
+	--accent-text: var(--neutral-1);
+	--viz-1: #7bd9e3;
+	--viz-2: #13a5b2;
+	--viz-3: #006973;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html,
+body {
+	margin: 0;
+	padding: 0;
+	background: var(--bg);
+	color: var(--text);
+	font-family: var(--font-ui);
+	font-weight: var(--weight-ui-regular);
+	font-size: var(--size-m);
+	line-height: var(--line-m);
+	letter-spacing: var(--letter-spacing-m);
+	text-wrap: pretty;
+	-webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4 {
+	font-family: var(--font-brand);
+	font-weight: var(--weight-brand-heavy);
+	text-wrap: pretty;
+}
+
+/* Stable line breaks where editing / preformatted layout matters. */
+pre,
+code,
+textarea {
+	text-wrap-style: auto;
+}
+
+/* Content links: body-colour text + a 1px colour-1 underline (contrast override, see
+   tokens). Hover thickens the underline. UI anchors below (nav items, tabs, pills, pagers,
+   buttons-as-links, the logo) stay undecorated and keep their component styling. */
+a {
+	color: var(--link);
+	text-decoration-line: underline;
+	text-decoration-color: var(--link-underline);
+	text-decoration-thickness: var(--link-underline-thickness);
+	text-underline-offset: var(--link-underline-offset);
+}
+a:hover {
+	color: var(--link-hover);
+	text-decoration-color: var(--link-underline);
+	text-decoration-thickness: var(--link-underline-thickness-hover);
+}
+nav a,
+a[role='menuitem'],
+a[role='tab'],
+a[aria-current],
+a:has(> button),
+a.brand,
+a.btn,
+a.btnlink,
+a.button-link,
+a.chip,
+a.chip-x,
+a.chrome-link,
+a.drawer-only,
+a.email-btn,
+a.export-btn,
+a.gear,
+a.gh,
+a.goto-link,
+a.label-chip-sm,
+a.metric,
+a.narrow-item,
+a.per-opt,
+a.pg,
+a.row,
+a.seg,
+a.sort,
+a.stat-cell,
+a.tab,
+a.tile {
+	text-decoration-line: none;
+}
+
+:focus-visible {
+	outline: 2px solid var(--color-1);
+	outline-offset: 2px;
+}
+
+/* Buttons. A bare <button> is the theme's primary variant; .secondary / .danger its
+   secondary / danger variants. Those variants draw no edge (borderWidth none); hover lifts
+   with shadow-s; keyboard focus = the 2px colour-1 outline plus the focus halo. */
+button {
+	font: inherit;
+	font-family: var(--font-ui);
+	font-weight: var(--weight-ui-medium);
+	font-size: var(--size-s);
+	line-height: var(--line-s);
+	letter-spacing: var(--tracking-l);
+	cursor: pointer;
+	padding: var(--space-xs) var(--space-m);
+	border: 0 solid transparent;
+	border-radius: var(--radius-s);
+	background: var(--btn-primary-bg);
+	color: var(--btn-primary-text);
+	box-shadow: none;
+	transition:
+		background-color var(--motion-duration) var(--motion-easing),
+		box-shadow var(--motion-duration) var(--motion-easing),
+		color var(--motion-duration) var(--motion-easing);
+}
+button:hover {
+	background: var(--btn-primary-hover);
+	box-shadow: var(--shadow-s);
+}
+button:active {
+	background: var(--btn-primary-active);
+	transform: translateY(var(--motion-press-distance));
+}
+button:focus-visible {
+	box-shadow: var(--focus-halo);
+}
+button.secondary {
+	background: var(--color-1-transparent);
+	color: var(--neutral-10);
+}
+button.secondary:hover {
+	background: var(--btn-secondary-hover);
+}
+button.secondary:active {
+	background: var(--btn-secondary-hover);
+}
+button.danger {
+	background: var(--error);
+	color: var(--neutral-1);
+}
+button:disabled,
+button:disabled:hover,
+button:disabled:active {
+	background: var(--neutral-3);
+	color: var(--neutral-6);
+	box-shadow: none;
+	transform: none;
+	cursor: not-allowed;
+}
+
+/* Fields: the theme's text field / select control. */
+input,
+textarea,
+select {
+	font: inherit;
+	font-family: var(--font-ui);
+	font-weight: var(--weight-ui-regular);
+	font-size: var(--size-s);
+	line-height: var(--line-s);
+	letter-spacing: var(--tracking-l);
+	color: var(--neutral-10);
+	background: var(--neutral-1);
+	border: 0 solid transparent;
+	border-radius: var(--radius-s);
+	padding: var(--space-xs) var(--space-s);
+	box-shadow: 0 0 0 var(--border-s) var(--neutral-4);
+	transition: box-shadow var(--motion-duration) var(--motion-easing);
+}
+input:hover,
+textarea:hover,
+select:hover {
+	box-shadow: 0 0 0 var(--border-s) var(--neutral-5);
+}
+input:focus,
+textarea:focus,
+select:focus {
+	box-shadow: 0 0 0 var(--border-s) var(--color-1-transparent), var(--focus-halo);
+}
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+	outline: 2px solid var(--color-1);
+	outline-offset: 0;
+}
+input:is([aria-invalid='true'], :user-invalid),
+textarea:is([aria-invalid='true'], :user-invalid),
+select:is([aria-invalid='true'], :user-invalid) {
+	box-shadow: 0 0 0 var(--border-s) var(--error);
+}
+input[readonly],
+textarea[readonly] {
+	background: var(--neutral-2);
+	color: var(--neutral-8);
+}
+input:disabled,
+textarea:disabled,
+select:disabled {
+	background: var(--neutral-3);
+	color: var(--neutral-6);
+	box-shadow: 0 0 0 var(--border-s) var(--neutral-4-transparent);
+	cursor: not-allowed;
+}
+input::placeholder,
+textarea::placeholder {
+	color: var(--neutral-6);
+}
+/* Checkbox / radio: native controls in the theme's colour (checked = colour-1). */
+input[type='checkbox'],
+input[type='radio'] {
+	padding: 0;
+	box-shadow: none;
+	accent-color: var(--color-1);
+}
+input[type='range'],
+input[type='color'],
+input[type='file'] {
+	box-shadow: none;
+	padding: 0;
+	background: none;
+	accent-color: var(--color-1);
+}
+
+/* Tables: data typography, solid row dividers drawn as one-sided inset shadows. */
+table {
+	width: 100%;
+	border-collapse: collapse;
+	font-family: var(--font-data);
+	font-size: var(--size-s);
+	line-height: var(--line-s);
+	letter-spacing: var(--letter-spacing-s);
+}
+th,
+td {
+	text-align: left;
+	padding: var(--space-xs) var(--space-s);
+	border-bottom: 0;
+	box-shadow: inset 0 calc(-1 * var(--border-s)) 0 var(--border);
+}
+thead th {
+	background: var(--surface-subtle);
+	color: var(--muted);
+	font-weight: var(--weight-data-heavy);
+	font-size: var(--size-xs);
+	line-height: var(--line-xs);
+	letter-spacing: var(--letter-spacing-xs);
+}
+tbody tr:last-child td {
+	box-shadow: none;
+}
+
+.card {
+	background: var(--surface);
+	border: 0;
+	border-radius: var(--radius-m);
+	padding: var(--card-pad);
+	box-shadow: var(--border-shadow-s), var(--shadow-s);
+}
+/* Soft danger info card, e.g. the contact page's Unsubscribed card: an 8% danger tint
+   over the card surface with a 35% danger edge (--danger is redefined in dark). Muted text
+   steps up to neutral-8 because neutral-7 on the tint is only 4.24:1 in light (neutral-8:
+   light 6.99:1, dark 8.44:1); body text is 14.75 / 13.42:1. */
+.card.danger-soft {
+	background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+	box-shadow: 0 0 0 var(--border-s) color-mix(in srgb, var(--danger) 35%, var(--border)), var(--shadow-s);
+}
+.card.danger-soft .muted {
+	color: var(--neutral-8);
+}
+
+/* Badges / pills: the theme's option badge shape; status fills from the *-transparent tokens.
+   Contrast override (WCAG AA): a status colour as text on its own 20% tint is only
+   4.46 / 3.99 / 4.00:1 in light (success / warning / error). Badge text is body text
+   (--text, neutral-10: light 12.31 / 12.60 / 12.36:1, dark 9.99 / 9.90 / 10.48:1 over the
+   card); the status colour stays as the tint plus a full-colour inset edge, and the label
+   carries the meaning. */
+.badge {
+	display: inline-block;
+	padding: var(--space-xxs) var(--space-xs);
+	border: 0;
+	border-radius: var(--radius-full);
+	font-size: var(--size-xs);
+	line-height: var(--line-xs);
+	letter-spacing: var(--letter-spacing-xs);
+	font-weight: var(--weight-ui-medium);
+	background: var(--neutral-3);
+	color: var(--neutral-8);
+}
+.badge.sent {
+	color: var(--text);
+	background: var(--success-transparent);
+	box-shadow: inset 0 0 0 var(--border-s) var(--success);
+}
+.badge.sending {
+	color: var(--text);
+	background: var(--warning-transparent);
+	box-shadow: inset 0 0 0 var(--border-s) var(--warning);
+}
+.badge.failed {
+	color: var(--text);
+	background: var(--error-transparent);
+	box-shadow: inset 0 0 0 var(--border-s) var(--error);
+}
+.badge.draft {
+	color: var(--neutral-8);
+	background: var(--neutral-3);
+}
+
+.muted {
+	color: var(--muted);
+}
+
+/* The one notice box — a tinted background + tinted ring, no left bar. Plain `.notice`
+   is neutral; `.ok` / `.warn` / `.err` carry state. Keep role="status" / role="alert" on the
+   element. Nothing to flag? Use a plain `.muted` meta line instead of a box. */
+.notice {
+	margin: 0 0 var(--space-m);
+	padding: var(--space-s) var(--space-m);
+	border: 0;
+	border-radius: var(--radius);
+	box-shadow: 0 0 0 var(--border-s) var(--border);
+	background: transparent;
+	color: var(--text);
+	font-size: var(--size-s);
+	line-height: var(--line-s);
+	letter-spacing: var(--letter-spacing-s);
+}
+.notice.ok {
+	box-shadow: 0 0 0 var(--border-s) color-mix(in srgb, var(--success) 45%, var(--border));
+	background: color-mix(in srgb, var(--success) 9%, transparent);
+}
+.notice.warn {
+	box-shadow: 0 0 0 var(--border-s) color-mix(in srgb, var(--warning) 45%, var(--border));
+	background: color-mix(in srgb, var(--warning) 10%, transparent);
+}
+.notice.err {
+	box-shadow: 0 0 0 var(--border-s) color-mix(in srgb, var(--danger) 45%, var(--border));
+	background: color-mix(in srgb, var(--danger) 9%, transparent);
+}
+
+/* Mobile: wide content scrolls inside its own box, never the page. */
+.table-wrap {
+	overflow-x: auto;
+	-webkit-overflow-scrolling: touch;
+	max-width: 100%;
+}
+pre {
+	overflow-x: auto;
+	max-width: 100%;
+}
+.card {
+	min-width: 0;
+}
+@media (max-width: 768px) {
+	/* ≥ 16px stops iOS Safari zooming into focused fields (structural, not a theme step). */
+	input,
+	textarea,
+	select {
+		font-size: 16px;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		transition-duration: 0ms !important;
+		animation-duration: 0ms !important;
+	}
+}

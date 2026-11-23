@@ -1,0 +1,702 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`back-compat: no design attributes = unchanged output > kitchen sink: email, page and text snapshots 1`] = `
+"<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:26px;font-weight:700;line-height:1.25;margin:0 0 14px;">Title</div>
+<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:20px;font-weight:700;line-height:1.25;margin:0 0 14px;">Sub <a href="https://a.test" style="color:#2563eb;text-decoration:underline;">link</a></div>
+<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:17px;font-weight:700;line-height:1.25;margin:0 0 14px;">Plain heading</div>
+<div class="ds-display" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:48px;font-weight:800;line-height:1.05;letter-spacing:-0.02em;margin:0 0 20px;">Big</div>
+<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;"><p>Legacy <strong>markdown</strong> {{first_name}}</p>
+</div>
+<p style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;margin:0 0 16px;">Hello <a href="https://b.test" style="color:#2563eb;text-decoration:underline;">there</a>{{first_name}}</p>
+<p style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;margin:0 0 16px;"><br></p>
+<ul style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;margin:0 0 16px;padding-left:22px;"><li style="margin:0 0 8px;">One</li><li style="margin:0 0 8px;">Two</li></ul>
+<ol style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;margin:0 0 16px;padding-left:22px;"><li style="margin:0 0 8px;">One</li><li style="margin:0 0 8px;">Two</li></ol>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 16px;text-align:left;"><tr><td width="44" valign="top" style="width:44px;padding:14px 0;"><div style="width:28px;height:28px;border:2px solid #1a9ec4;border-radius:50%;text-align:center;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;line-height:28px;">1</div></td><td valign="top" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;padding:17px 0 14px;">A</td></tr><tr><td width="44" valign="top" style="width:44px;padding:14px 0;border-top:1px solid #e3e3e3;"><div style="width:28px;height:28px;border:2px solid #1a9ec4;border-radius:50%;text-align:center;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;line-height:28px;">2</div></td><td valign="top" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;padding:17px 0 14px;border-top:1px solid #e3e3e3;">B</td></tr><tr><td width="44" valign="top" style="width:44px;padding:14px 0;border-top:1px solid #e3e3e3;"><div style="width:28px;height:28px;border:2px solid #1a9ec4;border-radius:50%;text-align:center;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;line-height:28px;">3</div></td><td valign="top" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;padding:17px 0 14px;border-top:1px solid #e3e3e3;">C</td></tr></table>
+<blockquote style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;margin:0 0 16px;padding:4px 0 4px 16px;border-left:3px solid #e5e7eb;color:#57606a;">Quoted</blockquote>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 16px;"><tr><td style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;background:#f4f4f5;border-radius:8px;padding:14px 16px;">Note</td></tr></table>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin:0 0 16px;"><tr><td width="28" style="width:28px;"><div style="border-top:2px solid #191919;width:28px;font-size:0;line-height:0;">&nbsp;</div></td><td style="padding-left:10px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.4;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#191919;">Label</td></tr></table>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin:0 0 16px;"><tr><td width="28" style="width:28px;"><div style="border-top:2px solid #1a9ec4;width:28px;font-size:0;line-height:0;">&nbsp;</div></td><td style="padding-left:10px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.4;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#1a9ec4;">Accent label</td></tr></table>
+<div style="font-size:0;line-height:0;margin:8px 0 12px;border-top:4px solid #191919;padding-top:16px;text-align:left;"><div class="ds-ms" style="display:inline-block;width:100%;max-width:197px;vertical-align:top;"><div style="padding:0 12px 12px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.4;text-align:left;"><div style="font-size:20px;font-weight:700;line-height:1.25;margin:0 0 4px;">1</div><div style="font-size:13px;line-height:1.4;">a</div></div></div><div class="ds-ms" style="display:inline-block;width:100%;max-width:197px;vertical-align:top;"><div style="padding:0 12px 12px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.4;text-align:left;"><div style="font-size:20px;font-weight:700;line-height:1.25;margin:0 0 4px;">2</div><div style="font-size:13px;line-height:1.4;">b</div></div></div><div class="ds-ms" style="display:inline-block;width:100%;max-width:197px;vertical-align:top;"><div style="padding:0 12px 12px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.4;text-align:left;"><div style="font-size:20px;font-weight:700;line-height:1.25;margin:0 0 4px;">3</div><div style="font-size:13px;line-height:1.4;">c</div></div></div></div>
+<div style="font-size:0;line-height:0;margin:8px 0 12px;text-align:left;"><div class="ds-ms" style="display:inline-block;width:100%;max-width:296px;vertical-align:top;"><div style="padding:0 12px 12px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.4;text-align:left;"><div style="font-size:20px;font-weight:700;line-height:1.25;margin:0 0 4px;">x</div><div style="font-size:13px;line-height:1.4;">y</div></div></div><div class="ds-ms" style="display:inline-block;width:100%;max-width:296px;vertical-align:top;"><div style="padding:0 12px 12px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.4;text-align:left;"><div style="font-size:20px;font-weight:700;line-height:1.25;margin:0 0 4px;">&nbsp;</div><div style="font-size:13px;line-height:1.4;">&nbsp;</div></div></div></div>
+<div style="margin:0 0 16px;"><img src="https://img.test/a.png" alt="A" width="600" style="display:block;width:100%;max-width:600px;height:auto;border-radius:6px;"></div>
+<div style="margin:0 0 16px;"><a href="https://c.test"><img src="https://img.test/b.png" alt="B" width="200" style="display:block;width:100%;max-width:200px;height:auto;border-radius:6px;"></a></div>
+<div style="margin:0 0 16px;"><img src="https://img.test/c.png" alt="C" width="240" style="display:block;width:100%;max-width:240px;height:auto;border-radius:6px;"></div>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin:0 0 16px;"><tr><td valign="middle"><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td bgcolor="#ffffff" style="background-color:#ffffff;border-radius:12px;padding:12px 16px;"><img src="https://img.test/d.png" alt="D" width="48" style="display:block;width:48px;max-width:100%;height:auto;border-radius:0px;"></td></tr></table></td></tr></table>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin:0 0 16px;"><tr><td valign="middle"><img src="https://img.test/e.png" alt="E" width="120" style="display:block;width:120px;max-width:100%;height:auto;border-radius:6px;"></td><td valign="middle" style="padding-left:12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:22px;font-weight:700;line-height:1.2;">Wordmark</td></tr></table>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" align="left" style="margin:8px 0 18px;"><tr><td style="background:#2563eb;border-radius:8px;font-size:16px;line-height:20px;"><a href="https://d.test" style="display:inline-block;padding:11px 22px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;font-weight:600;line-height:20px;color:#ffffff;text-decoration:none;">Left</a></td></tr></table>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" align="center" style="margin:8px auto 18px;"><tr><td style="background:#2563eb;border-radius:8px;font-size:16px;line-height:20px;"><a href="https://d.test" style="display:inline-block;padding:11px 22px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;font-weight:600;line-height:20px;color:#ffffff;text-decoration:none;">Centre</a></td></tr></table>
+<div style="text-align:right;font-size:0;line-height:0;margin:8px 0 8px;"><div class="ds-cta" style="display:inline-block;vertical-align:middle;margin:0 24px 10px 0;"><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td style="background:#2563eb;border-radius:8px;font-size:16px;line-height:20px;"><a href="https://d.test" style="display:inline-block;padding:11px 22px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;font-weight:600;line-height:20px;color:#ffffff;text-decoration:none;">Right</a></td></tr></table></div><div class="ds-cta-link" style="display:inline-block;vertical-align:middle;margin:0 0 10px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;font-weight:600;line-height:1.4;"><a href="mailto:a@b.test" style="font-size:16px;line-height:1.4;color:#2563eb;text-decoration:underline;">or here</a></div></div>
+
+<div style="border-top:1px solid #e5e7eb;margin:24px 0;font-size:0;line-height:0;">&nbsp;</div>
+<div style="height:12px;font-size:0;line-height:0;">&nbsp;</div>
+<div style="height:56px;font-size:0;line-height:0;">&nbsp;</div>
+{{#if tag:hot}}<p style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;margin:0 0 16px;">Hot only</p>{{/if}}
+<div style="text-align:left;font-size:0;margin:0 0 16px;"><div class="stack" style="display:inline-block;width:100%;max-width:288px;vertical-align:top;"><div style="padding:0 6px;font-size:16px;line-height:1.6;"><p style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;margin:0 0 16px;">Left cell</p></div></div><div class="stack" style="display:inline-block;width:100%;max-width:288px;vertical-align:top;"><div style="padding:0 6px;font-size:16px;line-height:1.6;"><div style="margin:0 0 16px;"><img src="https://img.test/f.png" alt="F" width="276" style="display:block;width:100%;max-width:276px;height:auto;border-radius:6px;"></div></div></div></div>
+<div style="text-align:left;font-size:0;margin:0 0 16px;"><div class="stack" style="display:inline-block;width:100%;max-width:188px;vertical-align:top;"><div style="padding:0 6px;font-size:16px;line-height:1.6;"><div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:17px;font-weight:700;line-height:1.25;margin:0 0 14px;">x</div></div></div><div class="stack" style="display:inline-block;width:100%;max-width:188px;vertical-align:top;"><div style="padding:0 6px;font-size:16px;line-height:1.6;"></div></div><div class="stack" style="display:inline-block;width:100%;max-width:188px;vertical-align:top;"><div style="padding:0 6px;font-size:16px;line-height:1.6;"><table role="presentation" border="0" cellpadding="0" cellspacing="0" align="center" style="margin:8px auto 18px;"><tr><td style="background:#2563eb;border-radius:8px;font-size:16px;line-height:20px;"><a href="https://e.test" style="display:inline-block;padding:11px 22px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;font-weight:600;line-height:20px;color:#ffffff;text-decoration:none;">Go</a></td></tr></table></div></div></div>
+%%CONTENT_AREA%%
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#1a9ec4" style="background-color:#1a9ec4;margin:0;border-collapse:separate;"><tr><td class="ds-sec ds-sec-lg" align="left" style="padding:40px 36px;color:#000000;font-family:Inter,Helvetica,Arial,sans-serif;text-align:left;"><div style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:26px;font-weight:700;line-height:1.25;margin:0 0 14px;">Title</div>
+<div style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:20px;font-weight:700;line-height:1.25;margin:0 0 14px;">Sub <a href="https://a.test" style="color:#000000;text-decoration:underline;">link</a></div>
+<div style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:17px;font-weight:700;line-height:1.25;margin:0 0 14px;">Plain heading</div>
+<div class="ds-display" style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:48px;font-weight:800;line-height:1.05;letter-spacing:-0.02em;margin:0 0 20px;">Big</div>
+<div style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;"><p>Legacy <strong>markdown</strong> {{first_name}}</p>
+</div>
+<p style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;margin:0 0 16px;">Hello <a href="https://b.test" style="color:#000000;text-decoration:underline;">there</a>{{first_name}}</p>
+<p style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;margin:0 0 16px;"><br></p>
+<ul style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;margin:0 0 16px;padding-left:22px;"><li style="margin:0 0 8px;">One</li><li style="margin:0 0 8px;">Two</li></ul>
+<ol style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;margin:0 0 16px;padding-left:22px;"><li style="margin:0 0 8px;">One</li><li style="margin:0 0 8px;">Two</li></ol>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 16px;text-align:left;"><tr><td width="44" valign="top" style="width:44px;padding:14px 0;"><div style="width:28px;height:28px;border:2px solid #000000;border-radius:50%;text-align:center;font-family:Inter,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;line-height:28px;">1</div></td><td valign="top" style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;padding:17px 0 14px;">A</td></tr><tr><td width="44" valign="top" style="width:44px;padding:14px 0;border-top:1px solid #e3e3e3;"><div style="width:28px;height:28px;border:2px solid #000000;border-radius:50%;text-align:center;font-family:Inter,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;line-height:28px;">2</div></td><td valign="top" style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;padding:17px 0 14px;border-top:1px solid #e3e3e3;">B</td></tr><tr><td width="44" valign="top" style="width:44px;padding:14px 0;border-top:1px solid #e3e3e3;"><div style="width:28px;height:28px;border:2px solid #000000;border-radius:50%;text-align:center;font-family:Inter,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;line-height:28px;">3</div></td><td valign="top" style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;padding:17px 0 14px;border-top:1px solid #e3e3e3;">C</td></tr></table>
+<blockquote style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;margin:0 0 16px;padding:4px 0 4px 16px;border-left:3px solid #e3e3e3;">Quoted</blockquote>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 16px;"><tr><td style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;background:#f4f4f5;border-radius:8px;padding:14px 16px;color:#1f2328;text-align:left;">Note</td></tr></table>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin:0 0 16px;"><tr><td width="28" style="width:28px;"><div style="border-top:2px solid #000000;width:28px;font-size:0;line-height:0;">&nbsp;</div></td><td style="padding-left:10px;font-family:Inter,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.4;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#000000;">Label</td></tr></table>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin:0 0 16px;"><tr><td width="28" style="width:28px;"><div style="border-top:2px solid #000000;width:28px;font-size:0;line-height:0;">&nbsp;</div></td><td style="padding-left:10px;font-family:Inter,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.4;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#000000;">Accent label</td></tr></table>
+<div style="font-size:0;line-height:0;margin:8px 0 12px;border-top:4px solid #000000;padding-top:16px;text-align:left;"><div class="ds-ms" style="display:inline-block;width:100%;max-width:173px;vertical-align:top;"><div style="padding:0 12px 12px 0;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.4;text-align:left;"><div style="font-size:20px;font-weight:700;line-height:1.25;margin:0 0 4px;">1</div><div style="font-size:13px;line-height:1.4;">a</div></div></div><div class="ds-ms" style="display:inline-block;width:100%;max-width:173px;vertical-align:top;"><div style="padding:0 12px 12px 0;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.4;text-align:left;"><div style="font-size:20px;font-weight:700;line-height:1.25;margin:0 0 4px;">2</div><div style="font-size:13px;line-height:1.4;">b</div></div></div><div class="ds-ms" style="display:inline-block;width:100%;max-width:173px;vertical-align:top;"><div style="padding:0 12px 12px 0;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.4;text-align:left;"><div style="font-size:20px;font-weight:700;line-height:1.25;margin:0 0 4px;">3</div><div style="font-size:13px;line-height:1.4;">c</div></div></div></div>
+<div style="font-size:0;line-height:0;margin:8px 0 12px;text-align:left;"><div class="ds-ms" style="display:inline-block;width:100%;max-width:260px;vertical-align:top;"><div style="padding:0 12px 12px 0;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.4;text-align:left;"><div style="font-size:20px;font-weight:700;line-height:1.25;margin:0 0 4px;">x</div><div style="font-size:13px;line-height:1.4;">y</div></div></div><div class="ds-ms" style="display:inline-block;width:100%;max-width:260px;vertical-align:top;"><div style="padding:0 12px 12px 0;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.4;text-align:left;"><div style="font-size:20px;font-weight:700;line-height:1.25;margin:0 0 4px;">&nbsp;</div><div style="font-size:13px;line-height:1.4;">&nbsp;</div></div></div></div>
+<div style="margin:0 0 16px;"><img src="https://img.test/a.png" alt="A" width="528" style="display:block;width:100%;max-width:528px;height:auto;border-radius:6px;"></div>
+<div style="margin:0 0 16px;"><a href="https://c.test"><img src="https://img.test/b.png" alt="B" width="200" style="display:block;width:100%;max-width:200px;height:auto;border-radius:6px;"></a></div>
+<div style="margin:0 0 16px;"><img src="https://img.test/c.png" alt="C" width="211" style="display:block;width:100%;max-width:211px;height:auto;border-radius:6px;"></div>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin:0 0 16px;"><tr><td valign="middle"><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td bgcolor="#ffffff" style="background-color:#ffffff;border-radius:12px;padding:12px 16px;"><img src="https://img.test/d.png" alt="D" width="48" style="display:block;width:48px;max-width:100%;height:auto;border-radius:0px;"></td></tr></table></td></tr></table>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin:0 0 16px;"><tr><td valign="middle"><img src="https://img.test/e.png" alt="E" width="120" style="display:block;width:120px;max-width:100%;height:auto;border-radius:6px;"></td><td valign="middle" style="padding-left:12px;font-family:Inter,Helvetica,Arial,sans-serif;font-size:22px;font-weight:700;line-height:1.2;">Wordmark</td></tr></table>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" align="left" style="margin:8px 0 18px;"><tr><td style="background:#000000;border-radius:8px;font-size:16px;line-height:20px;"><a href="https://d.test" style="display:inline-block;padding:11px 22px;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;font-weight:600;line-height:20px;color:#1a9ec4;text-decoration:none;">Left</a></td></tr></table>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" align="center" style="margin:8px auto 18px;"><tr><td style="background:#000000;border-radius:8px;font-size:16px;line-height:20px;"><a href="https://d.test" style="display:inline-block;padding:11px 22px;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;font-weight:600;line-height:20px;color:#1a9ec4;text-decoration:none;">Centre</a></td></tr></table>
+<div style="text-align:right;font-size:0;line-height:0;margin:8px 0 8px;"><div class="ds-cta" style="display:inline-block;vertical-align:middle;margin:0 24px 10px 0;"><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td style="background:#000000;border-radius:8px;font-size:16px;line-height:20px;"><a href="https://d.test" style="display:inline-block;padding:11px 22px;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;font-weight:600;line-height:20px;color:#1a9ec4;text-decoration:none;">Right</a></td></tr></table></div><div class="ds-cta-link" style="display:inline-block;vertical-align:middle;margin:0 0 10px;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;font-weight:600;line-height:1.4;"><a href="mailto:a@b.test" style="font-size:16px;line-height:1.4;color:#000000;text-decoration:underline;">or here</a></div></div>
+
+<div style="border-top:1px solid #e3e3e3;margin:24px 0;font-size:0;line-height:0;">&nbsp;</div>
+<div style="height:12px;font-size:0;line-height:0;">&nbsp;</div>
+<div style="height:56px;font-size:0;line-height:0;">&nbsp;</div>
+{{#if tag:hot}}<p style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;margin:0 0 16px;">Hot only</p>{{/if}}
+<div style="text-align:left;font-size:0;margin:0 0 16px;"><div class="stack" style="display:inline-block;width:100%;max-width:252px;vertical-align:top;"><div style="padding:0 6px;font-size:16px;line-height:1.6;"><p style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;margin:0 0 16px;">Left cell</p></div></div><div class="stack" style="display:inline-block;width:100%;max-width:252px;vertical-align:top;"><div style="padding:0 6px;font-size:16px;line-height:1.6;"><div style="margin:0 0 16px;"><img src="https://img.test/f.png" alt="F" width="240" style="display:block;width:100%;max-width:240px;height:auto;border-radius:6px;"></div></div></div></div>
+<div style="text-align:left;font-size:0;margin:0 0 16px;"><div class="stack" style="display:inline-block;width:100%;max-width:164px;vertical-align:top;"><div style="padding:0 6px;font-size:16px;line-height:1.6;"><div style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:17px;font-weight:700;line-height:1.25;margin:0 0 14px;">x</div></div></div><div class="stack" style="display:inline-block;width:100%;max-width:164px;vertical-align:top;"><div style="padding:0 6px;font-size:16px;line-height:1.6;"></div></div><div class="stack" style="display:inline-block;width:100%;max-width:164px;vertical-align:top;"><div style="padding:0 6px;font-size:16px;line-height:1.6;"><table role="presentation" border="0" cellpadding="0" cellspacing="0" align="center" style="margin:8px auto 18px;"><tr><td style="background:#000000;border-radius:8px;font-size:16px;line-height:20px;"><a href="https://e.test" style="display:inline-block;padding:11px 22px;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;font-weight:600;line-height:20px;color:#1a9ec4;text-decoration:none;">Go</a></td></tr></table></div></div></div></td></tr></table>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#15130e" style="background-color:#15130e;margin:0 0 16px;border-radius:12px;border-collapse:separate;"><tr><td class="ds-sec ds-sec-sm" align="center" style="padding:16px 20px;color:#ffffff;font-family:Inter,Helvetica,Arial,sans-serif;text-align:center;border-radius:12px;"><div style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:26px;font-weight:700;line-height:1.25;margin:0 0 14px;">Title</div>
+<div style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:20px;font-weight:700;line-height:1.25;margin:0 0 14px;">Sub <a href="https://a.test" style="color:#ffffff;text-decoration:underline;">link</a></div>
+<div style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:17px;font-weight:700;line-height:1.25;margin:0 0 14px;">Plain heading</div>
+<div class="ds-display" style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:48px;font-weight:800;line-height:1.05;letter-spacing:-0.02em;margin:0 0 20px;">Big</div>
+<div style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;"><p>Legacy <strong>markdown</strong> {{first_name}}</p>
+</div>
+<p style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;margin:0 0 16px;">Hello <a href="https://b.test" style="color:#ffffff;text-decoration:underline;">there</a>{{first_name}}</p>
+<p style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;margin:0 0 16px;"><br></p>
+<ul style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;margin:0 0 16px;padding-left:22px;"><li style="margin:0 0 8px;">One</li><li style="margin:0 0 8px;">Two</li></ul>
+<ol style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;margin:0 0 16px;padding-left:22px;"><li style="margin:0 0 8px;">One</li><li style="margin:0 0 8px;">Two</li></ol>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 16px;text-align:left;"><tr><td width="44" valign="top" style="width:44px;padding:14px 0;"><div style="width:28px;height:28px;border:2px solid #1a9ec4;border-radius:50%;text-align:center;font-family:Inter,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;line-height:28px;">1</div></td><td valign="top" style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;padding:17px 0 14px;">A</td></tr><tr><td width="44" valign="top" style="width:44px;padding:14px 0;border-top:1px solid #e3e3e3;"><div style="width:28px;height:28px;border:2px solid #1a9ec4;border-radius:50%;text-align:center;font-family:Inter,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;line-height:28px;">2</div></td><td valign="top" style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;padding:17px 0 14px;border-top:1px solid #e3e3e3;">B</td></tr><tr><td width="44" valign="top" style="width:44px;padding:14px 0;border-top:1px solid #e3e3e3;"><div style="width:28px;height:28px;border:2px solid #1a9ec4;border-radius:50%;text-align:center;font-family:Inter,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;line-height:28px;">3</div></td><td valign="top" style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;padding:17px 0 14px;border-top:1px solid #e3e3e3;">C</td></tr></table>
+<blockquote style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;margin:0 0 16px;padding:4px 0 4px 16px;border-left:3px solid #e3e3e3;">Quoted</blockquote>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 16px;"><tr><td style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;background:#f4f4f5;border-radius:8px;padding:14px 16px;color:#1f2328;text-align:left;">Note</td></tr></table>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" align="center" style="margin:0 auto 16px;"><tr><td width="28" style="width:28px;"><div style="border-top:2px solid #ffffff;width:28px;font-size:0;line-height:0;">&nbsp;</div></td><td style="padding-left:10px;font-family:Inter,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.4;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#ffffff;">Label</td></tr></table>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" align="center" style="margin:0 auto 16px;"><tr><td width="28" style="width:28px;"><div style="border-top:2px solid #1a9ec4;width:28px;font-size:0;line-height:0;">&nbsp;</div></td><td style="padding-left:10px;font-family:Inter,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.4;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#1a9ec4;">Accent label</td></tr></table>
+<div style="font-size:0;line-height:0;margin:8px 0 12px;border-top:4px solid #ffffff;padding-top:16px;text-align:left;"><div class="ds-ms" style="display:inline-block;width:100%;max-width:184px;vertical-align:top;"><div style="padding:0 12px 12px 0;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.4;text-align:left;"><div style="font-size:20px;font-weight:700;line-height:1.25;margin:0 0 4px;">1</div><div style="font-size:13px;line-height:1.4;">a</div></div></div><div class="ds-ms" style="display:inline-block;width:100%;max-width:184px;vertical-align:top;"><div style="padding:0 12px 12px 0;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.4;text-align:left;"><div style="font-size:20px;font-weight:700;line-height:1.25;margin:0 0 4px;">2</div><div style="font-size:13px;line-height:1.4;">b</div></div></div><div class="ds-ms" style="display:inline-block;width:100%;max-width:184px;vertical-align:top;"><div style="padding:0 12px 12px 0;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.4;text-align:left;"><div style="font-size:20px;font-weight:700;line-height:1.25;margin:0 0 4px;">3</div><div style="font-size:13px;line-height:1.4;">c</div></div></div></div>
+<div style="font-size:0;line-height:0;margin:8px 0 12px;text-align:left;"><div class="ds-ms" style="display:inline-block;width:100%;max-width:276px;vertical-align:top;"><div style="padding:0 12px 12px 0;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.4;text-align:left;"><div style="font-size:20px;font-weight:700;line-height:1.25;margin:0 0 4px;">x</div><div style="font-size:13px;line-height:1.4;">y</div></div></div><div class="ds-ms" style="display:inline-block;width:100%;max-width:276px;vertical-align:top;"><div style="padding:0 12px 12px 0;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.4;text-align:left;"><div style="font-size:20px;font-weight:700;line-height:1.25;margin:0 0 4px;">&nbsp;</div><div style="font-size:13px;line-height:1.4;">&nbsp;</div></div></div></div>
+<div style="margin:0 0 16px;"><img src="https://img.test/a.png" alt="A" width="560" style="display:block;margin:0 auto;width:100%;max-width:560px;height:auto;border-radius:6px;"></div>
+<div style="margin:0 0 16px;"><a href="https://c.test"><img src="https://img.test/b.png" alt="B" width="200" style="display:block;margin:0 auto;width:100%;max-width:200px;height:auto;border-radius:6px;"></a></div>
+<div style="margin:0 0 16px;"><img src="https://img.test/c.png" alt="C" width="224" style="display:block;margin:0 auto;width:100%;max-width:224px;height:auto;border-radius:6px;"></div>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" align="center" style="margin:0 auto 16px;"><tr><td valign="middle"><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td bgcolor="#ffffff" style="background-color:#ffffff;border-radius:12px;padding:12px 16px;"><img src="https://img.test/d.png" alt="D" width="48" style="display:block;width:48px;max-width:100%;height:auto;border-radius:0px;"></td></tr></table></td></tr></table>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" align="center" style="margin:0 auto 16px;"><tr><td valign="middle"><img src="https://img.test/e.png" alt="E" width="120" style="display:block;width:120px;max-width:100%;height:auto;border-radius:6px;"></td><td valign="middle" style="padding-left:12px;font-family:Inter,Helvetica,Arial,sans-serif;font-size:22px;font-weight:700;line-height:1.2;">Wordmark</td></tr></table>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" align="left" style="margin:8px 0 18px;"><tr><td style="background:#ffffff;border-radius:8px;font-size:16px;line-height:20px;"><a href="https://d.test" style="display:inline-block;padding:11px 22px;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;font-weight:600;line-height:20px;color:#15130e;text-decoration:none;">Left</a></td></tr></table>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" align="center" style="margin:8px auto 18px;"><tr><td style="background:#ffffff;border-radius:8px;font-size:16px;line-height:20px;"><a href="https://d.test" style="display:inline-block;padding:11px 22px;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;font-weight:600;line-height:20px;color:#15130e;text-decoration:none;">Centre</a></td></tr></table>
+<div style="text-align:right;font-size:0;line-height:0;margin:8px 0 8px;"><div class="ds-cta" style="display:inline-block;vertical-align:middle;margin:0 24px 10px 0;"><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td style="background:#ffffff;border-radius:8px;font-size:16px;line-height:20px;"><a href="https://d.test" style="display:inline-block;padding:11px 22px;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;font-weight:600;line-height:20px;color:#15130e;text-decoration:none;">Right</a></td></tr></table></div><div class="ds-cta-link" style="display:inline-block;vertical-align:middle;margin:0 0 10px;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;font-weight:600;line-height:1.4;"><a href="mailto:a@b.test" style="font-size:16px;line-height:1.4;color:#ffffff;text-decoration:underline;">or here</a></div></div>
+
+<div style="border-top:1px solid #e3e3e3;margin:24px 0;font-size:0;line-height:0;">&nbsp;</div>
+<div style="height:12px;font-size:0;line-height:0;">&nbsp;</div>
+<div style="height:56px;font-size:0;line-height:0;">&nbsp;</div>
+{{#if tag:hot}}<p style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;margin:0 0 16px;">Hot only</p>{{/if}}
+<div style="text-align:left;font-size:0;margin:0 0 16px;"><div class="stack" style="display:inline-block;width:100%;max-width:268px;vertical-align:top;"><div style="padding:0 6px;font-size:16px;line-height:1.6;"><p style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;margin:0 0 16px;">Left cell</p></div></div><div class="stack" style="display:inline-block;width:100%;max-width:268px;vertical-align:top;"><div style="padding:0 6px;font-size:16px;line-height:1.6;"><div style="margin:0 0 16px;"><img src="https://img.test/f.png" alt="F" width="256" style="display:block;margin:0 auto;width:100%;max-width:256px;height:auto;border-radius:6px;"></div></div></div></div>
+<div style="text-align:left;font-size:0;margin:0 0 16px;"><div class="stack" style="display:inline-block;width:100%;max-width:174px;vertical-align:top;"><div style="padding:0 6px;font-size:16px;line-height:1.6;"><div style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:17px;font-weight:700;line-height:1.25;margin:0 0 14px;">x</div></div></div><div class="stack" style="display:inline-block;width:100%;max-width:174px;vertical-align:top;"><div style="padding:0 6px;font-size:16px;line-height:1.6;"></div></div><div class="stack" style="display:inline-block;width:100%;max-width:174px;vertical-align:top;"><div style="padding:0 6px;font-size:16px;line-height:1.6;"><table role="presentation" border="0" cellpadding="0" cellspacing="0" align="center" style="margin:8px auto 18px;"><tr><td style="background:#ffffff;border-radius:8px;font-size:16px;line-height:20px;"><a href="https://e.test" style="display:inline-block;padding:11px 22px;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;font-weight:600;line-height:20px;color:#15130e;text-decoration:none;">Go</a></td></tr></table></div></div></div></td></tr></table>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#f5f3ed" style="background-color:#f5f3ed;margin:0;border-collapse:separate;"><tr><td class="ds-sec ds-sec-md" align="left" style="padding:28px 28px;color:#000000;font-family:Inter,Helvetica,Arial,sans-serif;text-align:left;"><div style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:26px;font-weight:700;line-height:1.25;margin:0 0 14px;">Title</div>
+<div style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:20px;font-weight:700;line-height:1.25;margin:0 0 14px;">Sub <a href="https://a.test" style="color:#000000;text-decoration:underline;">link</a></div>
+<div style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:17px;font-weight:700;line-height:1.25;margin:0 0 14px;">Plain heading</div>
+<div class="ds-display" style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:48px;font-weight:800;line-height:1.05;letter-spacing:-0.02em;margin:0 0 20px;">Big</div>
+<div style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;"><p>Legacy <strong>markdown</strong> {{first_name}}</p>
+</div>
+<p style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;margin:0 0 16px;">Hello <a href="https://b.test" style="color:#000000;text-decoration:underline;">there</a>{{first_name}}</p>
+<p style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;margin:0 0 16px;"><br></p>
+<ul style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;margin:0 0 16px;padding-left:22px;"><li style="margin:0 0 8px;">One</li><li style="margin:0 0 8px;">Two</li></ul>
+<ol style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;margin:0 0 16px;padding-left:22px;"><li style="margin:0 0 8px;">One</li><li style="margin:0 0 8px;">Two</li></ol>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 16px;text-align:left;"><tr><td width="44" valign="top" style="width:44px;padding:14px 0;"><div style="width:28px;height:28px;border:2px solid #000000;border-radius:50%;text-align:center;font-family:Inter,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;line-height:28px;">1</div></td><td valign="top" style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;padding:17px 0 14px;">A</td></tr><tr><td width="44" valign="top" style="width:44px;padding:14px 0;border-top:1px solid #000000;"><div style="width:28px;height:28px;border:2px solid #000000;border-radius:50%;text-align:center;font-family:Inter,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;line-height:28px;">2</div></td><td valign="top" style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;padding:17px 0 14px;border-top:1px solid #000000;">B</td></tr><tr><td width="44" valign="top" style="width:44px;padding:14px 0;border-top:1px solid #000000;"><div style="width:28px;height:28px;border:2px solid #000000;border-radius:50%;text-align:center;font-family:Inter,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;line-height:28px;">3</div></td><td valign="top" style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;padding:17px 0 14px;border-top:1px solid #000000;">C</td></tr></table>
+<blockquote style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;margin:0 0 16px;padding:4px 0 4px 16px;border-left:3px solid #000000;">Quoted</blockquote>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 16px;"><tr><td style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;background:#f4f4f5;border-radius:8px;padding:14px 16px;color:#1f2328;text-align:left;">Note</td></tr></table>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin:0 0 16px;"><tr><td width="28" style="width:28px;"><div style="border-top:2px solid #000000;width:28px;font-size:0;line-height:0;">&nbsp;</div></td><td style="padding-left:10px;font-family:Inter,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.4;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#000000;">Label</td></tr></table>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin:0 0 16px;"><tr><td width="28" style="width:28px;"><div style="border-top:2px solid #000000;width:28px;font-size:0;line-height:0;">&nbsp;</div></td><td style="padding-left:10px;font-family:Inter,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.4;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#000000;">Accent label</td></tr></table>
+<div style="font-size:0;line-height:0;margin:8px 0 12px;border-top:4px solid #000000;padding-top:16px;text-align:left;"><div class="ds-ms" style="display:inline-block;width:100%;max-width:178px;vertical-align:top;"><div style="padding:0 12px 12px 0;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.4;text-align:left;"><div style="font-size:20px;font-weight:700;line-height:1.25;margin:0 0 4px;">1</div><div style="font-size:13px;line-height:1.4;">a</div></div></div><div class="ds-ms" style="display:inline-block;width:100%;max-width:178px;vertical-align:top;"><div style="padding:0 12px 12px 0;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.4;text-align:left;"><div style="font-size:20px;font-weight:700;line-height:1.25;margin:0 0 4px;">2</div><div style="font-size:13px;line-height:1.4;">b</div></div></div><div class="ds-ms" style="display:inline-block;width:100%;max-width:178px;vertical-align:top;"><div style="padding:0 12px 12px 0;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.4;text-align:left;"><div style="font-size:20px;font-weight:700;line-height:1.25;margin:0 0 4px;">3</div><div style="font-size:13px;line-height:1.4;">c</div></div></div></div>
+<div style="font-size:0;line-height:0;margin:8px 0 12px;text-align:left;"><div class="ds-ms" style="display:inline-block;width:100%;max-width:268px;vertical-align:top;"><div style="padding:0 12px 12px 0;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.4;text-align:left;"><div style="font-size:20px;font-weight:700;line-height:1.25;margin:0 0 4px;">x</div><div style="font-size:13px;line-height:1.4;">y</div></div></div><div class="ds-ms" style="display:inline-block;width:100%;max-width:268px;vertical-align:top;"><div style="padding:0 12px 12px 0;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.4;text-align:left;"><div style="font-size:20px;font-weight:700;line-height:1.25;margin:0 0 4px;">&nbsp;</div><div style="font-size:13px;line-height:1.4;">&nbsp;</div></div></div></div>
+<div style="margin:0 0 16px;"><img src="https://img.test/a.png" alt="A" width="544" style="display:block;width:100%;max-width:544px;height:auto;border-radius:6px;"></div>
+<div style="margin:0 0 16px;"><a href="https://c.test"><img src="https://img.test/b.png" alt="B" width="200" style="display:block;width:100%;max-width:200px;height:auto;border-radius:6px;"></a></div>
+<div style="margin:0 0 16px;"><img src="https://img.test/c.png" alt="C" width="218" style="display:block;width:100%;max-width:218px;height:auto;border-radius:6px;"></div>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin:0 0 16px;"><tr><td valign="middle"><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td bgcolor="#ffffff" style="background-color:#ffffff;border-radius:12px;padding:12px 16px;"><img src="https://img.test/d.png" alt="D" width="48" style="display:block;width:48px;max-width:100%;height:auto;border-radius:0px;"></td></tr></table></td></tr></table>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin:0 0 16px;"><tr><td valign="middle"><img src="https://img.test/e.png" alt="E" width="120" style="display:block;width:120px;max-width:100%;height:auto;border-radius:6px;"></td><td valign="middle" style="padding-left:12px;font-family:Inter,Helvetica,Arial,sans-serif;font-size:22px;font-weight:700;line-height:1.2;">Wordmark</td></tr></table>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" align="left" style="margin:8px 0 18px;"><tr><td style="background:#000000;border-radius:8px;font-size:16px;line-height:20px;"><a href="https://d.test" style="display:inline-block;padding:11px 22px;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;font-weight:600;line-height:20px;color:#f5f3ed;text-decoration:none;">Left</a></td></tr></table>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" align="center" style="margin:8px auto 18px;"><tr><td style="background:#000000;border-radius:8px;font-size:16px;line-height:20px;"><a href="https://d.test" style="display:inline-block;padding:11px 22px;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;font-weight:600;line-height:20px;color:#f5f3ed;text-decoration:none;">Centre</a></td></tr></table>
+<div style="text-align:right;font-size:0;line-height:0;margin:8px 0 8px;"><div class="ds-cta" style="display:inline-block;vertical-align:middle;margin:0 24px 10px 0;"><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td style="background:#000000;border-radius:8px;font-size:16px;line-height:20px;"><a href="https://d.test" style="display:inline-block;padding:11px 22px;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;font-weight:600;line-height:20px;color:#f5f3ed;text-decoration:none;">Right</a></td></tr></table></div><div class="ds-cta-link" style="display:inline-block;vertical-align:middle;margin:0 0 10px;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;font-weight:600;line-height:1.4;"><a href="mailto:a@b.test" style="font-size:16px;line-height:1.4;color:#000000;text-decoration:underline;">or here</a></div></div>
+
+<div style="border-top:1px solid #000000;margin:24px 0;font-size:0;line-height:0;">&nbsp;</div>
+<div style="height:12px;font-size:0;line-height:0;">&nbsp;</div>
+<div style="height:56px;font-size:0;line-height:0;">&nbsp;</div>
+{{#if tag:hot}}<p style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;margin:0 0 16px;">Hot only</p>{{/if}}
+<div style="text-align:left;font-size:0;margin:0 0 16px;"><div class="stack" style="display:inline-block;width:100%;max-width:260px;vertical-align:top;"><div style="padding:0 6px;font-size:16px;line-height:1.6;"><p style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;margin:0 0 16px;">Left cell</p></div></div><div class="stack" style="display:inline-block;width:100%;max-width:260px;vertical-align:top;"><div style="padding:0 6px;font-size:16px;line-height:1.6;"><div style="margin:0 0 16px;"><img src="https://img.test/f.png" alt="F" width="248" style="display:block;width:100%;max-width:248px;height:auto;border-radius:6px;"></div></div></div></div>
+<div style="text-align:left;font-size:0;margin:0 0 16px;"><div class="stack" style="display:inline-block;width:100%;max-width:169px;vertical-align:top;"><div style="padding:0 6px;font-size:16px;line-height:1.6;"><div style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:17px;font-weight:700;line-height:1.25;margin:0 0 14px;">x</div></div></div><div class="stack" style="display:inline-block;width:100%;max-width:169px;vertical-align:top;"><div style="padding:0 6px;font-size:16px;line-height:1.6;"></div></div><div class="stack" style="display:inline-block;width:100%;max-width:169px;vertical-align:top;"><div style="padding:0 6px;font-size:16px;line-height:1.6;"><table role="presentation" border="0" cellpadding="0" cellspacing="0" align="center" style="margin:8px auto 18px;"><tr><td style="background:#000000;border-radius:8px;font-size:16px;line-height:20px;"><a href="https://e.test" style="display:inline-block;padding:11px 22px;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;font-weight:600;line-height:20px;color:#f5f3ed;text-decoration:none;">Go</a></td></tr></table></div></div></div></td></tr></table>"
+`;
+
+exports[`back-compat: no design attributes = unchanged output > kitchen sink: email, page and text snapshots 2`] = `
+"<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Page</title>
+<style>
+  :root { color-scheme: light; }
+  body { margin:0; padding:0; background:#fafafa;
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+    font-size:17px; line-height:1.65; color:#1f2328; }
+  .page { max-width:720px; margin:0 auto; padding:48px 24px 80px; }
+  h1 { font-size:32px; line-height:1.2; margin:32px 0 20px; }
+  h2 { font-size:22px; line-height:1.3; margin:28px 0 12px; }
+  p { margin:0 0 16px; }
+  ul, ol { margin:0 0 16px; padding-left:22px; }
+  a { color:#2563eb; }
+  img { max-width:100%; height:auto; border-radius:8px; display:block; }
+  hr { border:none; border-top:1px solid #e5e7eb; margin:28px 0; }
+  blockquote { margin:0 0 16px; padding:4px 0 4px 16px; border-left:3px solid #e5e7eb; color:#57606a; }
+  h3 { font-size:18px; line-height:1.35; margin:22px 0 10px; }
+  /* #329: no space above a heading that opens its container or follows a heading / eyebrow. */
+  :is(.page, .b-sec, .col) > :is(h1, h2, h3):first-child,
+  :is(h1, h2, h3, .b-eyebrow) + :is(h1, h2, h3) { margin-top:0; }
+  .b-img { margin:0 0 16px; }
+  .b-callout { margin:0 0 16px; padding:14px 16px; background:#f4f4f5; border-radius:8px; }
+  .b-btn { margin:8px 0 20px; }
+  .btn { display:inline-block; background:#2563eb; color:#ffffff; padding:11px 22px;
+    border-radius:8px; text-decoration:none; font-weight:600; }
+  .cols { display:grid; gap:24px; margin:0 0 16px; }
+  .cols-2 { grid-template-columns:1fr 1fr; }
+  .cols-3 { grid-template-columns:1fr 1fr 1fr; }
+  @media (max-width:600px) { .cols-2, .cols-3 { grid-template-columns:1fr; } }
+  .b-sec { margin:0 0 16px; border-radius:12px; font-family:Inter,Helvetica,Arial,sans-serif; }
+  .b-sec.full { border-radius:0; margin:0; }
+  .b-sec > :last-child { margin-bottom:0; }
+  .b-sec a { color:inherit; }
+  .b-sec .btn { background:var(--btn-bg); color:var(--btn-fg); }
+  .b-eyebrow { display:flex; align-items:center; gap:10px; margin:0 0 16px; font-size:13px;
+    line-height:1.4; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; }
+  .b-sec[style*="text-align:center"] .b-eyebrow { justify-content:center; }
+  .b-eyebrow.accent { color:var(--acc, #1a9ec4); }
+  .b-eyebrow-rule { flex:0 0 28px; border-top:2px solid currentColor; }
+  .b-display { font-size:52px; line-height:1.05; letter-spacing:-0.02em; margin:0 0 20px; }
+  .b-ms { display:grid; grid-template-columns:repeat(var(--n), minmax(0, 1fr)); gap:16px; margin:8px 0 24px; }
+  .b-ms.rule { border-top:4px solid currentColor; padding-top:16px; }
+  .b-ms strong { display:block; font-size:20px; line-height:1.25; }
+  .b-ms span { display:block; font-size:13px; line-height:1.4; }
+  .b-steps { list-style:none; padding:0; counter-reset:step; }
+  .b-steps li { counter-increment:step; display:flex; gap:16px; margin:0; padding:14px 0;
+    border-top:1px solid var(--hair, #e3e3e3); }
+  .b-steps li:first-child { border-top:0; }
+  .b-steps li::before { content:counter(step); flex:0 0 28px; height:28px; border:2px solid var(--acc, #1a9ec4);
+    border-radius:50%; text-align:center; line-height:28px; font-size:14px; font-weight:700; }
+  .b-btn-row { display:flex; flex-wrap:wrap; align-items:center; gap:12px 20px; }
+  .b-link { font-weight:600; text-decoration:underline; }
+  .b-img-row { display:flex; align-items:center; gap:12px; }
+  .b-sec[style*="text-align:center"] .b-img-row { justify-content:center; }
+  .b-img-row img { width:auto; }
+  .b-chip { display:inline-block; background:#ffffff; border-radius:12px; padding:12px 16px; }
+  .b-chip img { border-radius:0; }
+  .b-beside { font-size:22px; font-weight:700; }
+  @media (max-width:600px) {
+    .b-ms { grid-template-columns:1fr 1fr; }
+    .b-display { font-size:36px; }
+    .b-sec { padding:28px 20px !important; }
+  }
+</style>
+</head>
+<body>
+<main class="page">
+<h1>Title</h1>
+<h2>Sub <a href="https://a.test">link</a></h2>
+<h3>Plain heading</h3>
+<h1 class="b-display">Big</h1>
+<div class="b-text"><p>Legacy <strong>markdown</strong> {{first_name}}</p>
+</div>
+<p>Hello <a href="https://b.test">there</a>{{first_name}}</p>
+<p><br></p>
+<ul><li>One</li><li>Two</li></ul>
+<ol><li>One</li><li>Two</li></ol>
+<ol class="b-steps"><li>A</li><li>B</li><li>C</li></ol>
+<blockquote>Quoted</blockquote>
+<div class="b-callout">Note</div>
+<p class="b-eyebrow"><span class="b-eyebrow-rule"></span>Label</p>
+<p class="b-eyebrow accent"><span class="b-eyebrow-rule"></span>Accent label</p>
+<div class="b-ms rule" style="--n:3"><div><strong>1</strong><span>a</span></div><div><strong>2</strong><span>b</span></div><div><strong>3</strong><span>c</span></div></div>
+<div class="b-ms" style="--n:2"><div><strong>x</strong><span>y</span></div><div><strong></strong><span></span></div></div>
+<div class="b-img"><img src="https://img.test/a.png" alt="A" loading="lazy"></div>
+<div class="b-img"><a href="https://c.test"><img src="https://img.test/b.png" alt="B" loading="lazy" style="max-width:200px"></a></div>
+<div class="b-img"><img src="https://img.test/c.png" alt="C" loading="lazy" style="width:40%"></div>
+<div class="b-img b-img-row"><span class="b-chip"><img src="https://img.test/d.png" alt="D" loading="lazy" style="max-width:48px"></span></div>
+<div class="b-img b-img-row"><img src="https://img.test/e.png" alt="E" loading="lazy"><span class="b-beside">Wordmark</span></div>
+<div class="b-btn" style="text-align:left"><a class="btn" href="https://d.test">Left</a></div>
+<div class="b-btn" style="text-align:center"><a class="btn" href="https://d.test">Centre</a></div>
+<div class="b-btn b-btn-row" style="text-align:right;justify-content:flex-end"><a class="btn" href="https://d.test">Right</a><a class="b-link" href="mailto:a@b.test">or here</a></div>
+
+<hr>
+<div style="height:12px"></div>
+<div style="height:56px"></div>
+<p>Hot only</p>
+<div class="cols cols-2"><div class="col"><p>Left cell</p></div>
+<div class="col"><div class="b-img"><img src="https://img.test/f.png" alt="F" loading="lazy"></div></div></div>
+<div class="cols cols-3"><div class="col"><h3>x</h3></div>
+<div class="col"></div>
+<div class="col"><div class="b-btn" style="text-align:center"><a class="btn" href="https://e.test">Go</a></div></div></div>
+
+<section class="b-sec full" style="background:#1a9ec4;color:#000000;padding:44px 40px;--acc:#000000;--hair:#e3e3e3;--btn-bg:#000000;--btn-fg:#1a9ec4;"><h1>Title</h1>
+<h2>Sub <a href="https://a.test">link</a></h2>
+<h3>Plain heading</h3>
+<h1 class="b-display">Big</h1>
+<div class="b-text"><p>Legacy <strong>markdown</strong> {{first_name}}</p>
+</div>
+<p>Hello <a href="https://b.test">there</a>{{first_name}}</p>
+<p><br></p>
+<ul><li>One</li><li>Two</li></ul>
+<ol><li>One</li><li>Two</li></ol>
+<ol class="b-steps"><li>A</li><li>B</li><li>C</li></ol>
+<blockquote>Quoted</blockquote>
+<div class="b-callout">Note</div>
+<p class="b-eyebrow"><span class="b-eyebrow-rule"></span>Label</p>
+<p class="b-eyebrow accent"><span class="b-eyebrow-rule"></span>Accent label</p>
+<div class="b-ms rule" style="--n:3"><div><strong>1</strong><span>a</span></div><div><strong>2</strong><span>b</span></div><div><strong>3</strong><span>c</span></div></div>
+<div class="b-ms" style="--n:2"><div><strong>x</strong><span>y</span></div><div><strong></strong><span></span></div></div>
+<div class="b-img"><img src="https://img.test/a.png" alt="A" loading="lazy"></div>
+<div class="b-img"><a href="https://c.test"><img src="https://img.test/b.png" alt="B" loading="lazy" style="max-width:200px"></a></div>
+<div class="b-img"><img src="https://img.test/c.png" alt="C" loading="lazy" style="width:40%"></div>
+<div class="b-img b-img-row"><span class="b-chip"><img src="https://img.test/d.png" alt="D" loading="lazy" style="max-width:48px"></span></div>
+<div class="b-img b-img-row"><img src="https://img.test/e.png" alt="E" loading="lazy"><span class="b-beside">Wordmark</span></div>
+<div class="b-btn" style="text-align:left"><a class="btn" href="https://d.test">Left</a></div>
+<div class="b-btn" style="text-align:center"><a class="btn" href="https://d.test">Centre</a></div>
+<div class="b-btn b-btn-row" style="text-align:right;justify-content:flex-end"><a class="btn" href="https://d.test">Right</a><a class="b-link" href="mailto:a@b.test">or here</a></div>
+
+<hr>
+<div style="height:12px"></div>
+<div style="height:56px"></div>
+<p>Hot only</p>
+<div class="cols cols-2"><div class="col"><p>Left cell</p></div>
+<div class="col"><div class="b-img"><img src="https://img.test/f.png" alt="F" loading="lazy"></div></div></div>
+<div class="cols cols-3"><div class="col"><h3>x</h3></div>
+<div class="col"></div>
+<div class="col"><div class="b-btn" style="text-align:center"><a class="btn" href="https://e.test">Go</a></div></div></div></section>
+<section class="b-sec inset" style="background:#15130e;color:#ffffff;padding:16px 20px;--acc:#1a9ec4;--hair:#e3e3e3;--btn-bg:#ffffff;--btn-fg:#15130e;text-align:center;"><h1>Title</h1>
+<h2>Sub <a href="https://a.test">link</a></h2>
+<h3>Plain heading</h3>
+<h1 class="b-display">Big</h1>
+<div class="b-text"><p>Legacy <strong>markdown</strong> {{first_name}}</p>
+</div>
+<p>Hello <a href="https://b.test">there</a>{{first_name}}</p>
+<p><br></p>
+<ul><li>One</li><li>Two</li></ul>
+<ol><li>One</li><li>Two</li></ol>
+<ol class="b-steps"><li>A</li><li>B</li><li>C</li></ol>
+<blockquote>Quoted</blockquote>
+<div class="b-callout">Note</div>
+<p class="b-eyebrow"><span class="b-eyebrow-rule"></span>Label</p>
+<p class="b-eyebrow accent"><span class="b-eyebrow-rule"></span>Accent label</p>
+<div class="b-ms rule" style="--n:3"><div><strong>1</strong><span>a</span></div><div><strong>2</strong><span>b</span></div><div><strong>3</strong><span>c</span></div></div>
+<div class="b-ms" style="--n:2"><div><strong>x</strong><span>y</span></div><div><strong></strong><span></span></div></div>
+<div class="b-img"><img src="https://img.test/a.png" alt="A" loading="lazy"></div>
+<div class="b-img"><a href="https://c.test"><img src="https://img.test/b.png" alt="B" loading="lazy" style="max-width:200px"></a></div>
+<div class="b-img"><img src="https://img.test/c.png" alt="C" loading="lazy" style="width:40%"></div>
+<div class="b-img b-img-row"><span class="b-chip"><img src="https://img.test/d.png" alt="D" loading="lazy" style="max-width:48px"></span></div>
+<div class="b-img b-img-row"><img src="https://img.test/e.png" alt="E" loading="lazy"><span class="b-beside">Wordmark</span></div>
+<div class="b-btn" style="text-align:left"><a class="btn" href="https://d.test">Left</a></div>
+<div class="b-btn" style="text-align:center"><a class="btn" href="https://d.test">Centre</a></div>
+<div class="b-btn b-btn-row" style="text-align:right;justify-content:flex-end"><a class="btn" href="https://d.test">Right</a><a class="b-link" href="mailto:a@b.test">or here</a></div>
+
+<hr>
+<div style="height:12px"></div>
+<div style="height:56px"></div>
+<p>Hot only</p>
+<div class="cols cols-2"><div class="col"><p>Left cell</p></div>
+<div class="col"><div class="b-img"><img src="https://img.test/f.png" alt="F" loading="lazy"></div></div></div>
+<div class="cols cols-3"><div class="col"><h3>x</h3></div>
+<div class="col"></div>
+<div class="col"><div class="b-btn" style="text-align:center"><a class="btn" href="https://e.test">Go</a></div></div></div></section>
+<section class="b-sec full" style="background:#f5f3ed;color:#000000;padding:28px 28px;--acc:#000000;--hair:#000000;--btn-bg:#000000;--btn-fg:#f5f3ed;"><h1>Title</h1>
+<h2>Sub <a href="https://a.test">link</a></h2>
+<h3>Plain heading</h3>
+<h1 class="b-display">Big</h1>
+<div class="b-text"><p>Legacy <strong>markdown</strong> {{first_name}}</p>
+</div>
+<p>Hello <a href="https://b.test">there</a>{{first_name}}</p>
+<p><br></p>
+<ul><li>One</li><li>Two</li></ul>
+<ol><li>One</li><li>Two</li></ol>
+<ol class="b-steps"><li>A</li><li>B</li><li>C</li></ol>
+<blockquote>Quoted</blockquote>
+<div class="b-callout">Note</div>
+<p class="b-eyebrow"><span class="b-eyebrow-rule"></span>Label</p>
+<p class="b-eyebrow accent"><span class="b-eyebrow-rule"></span>Accent label</p>
+<div class="b-ms rule" style="--n:3"><div><strong>1</strong><span>a</span></div><div><strong>2</strong><span>b</span></div><div><strong>3</strong><span>c</span></div></div>
+<div class="b-ms" style="--n:2"><div><strong>x</strong><span>y</span></div><div><strong></strong><span></span></div></div>
+<div class="b-img"><img src="https://img.test/a.png" alt="A" loading="lazy"></div>
+<div class="b-img"><a href="https://c.test"><img src="https://img.test/b.png" alt="B" loading="lazy" style="max-width:200px"></a></div>
+<div class="b-img"><img src="https://img.test/c.png" alt="C" loading="lazy" style="width:40%"></div>
+<div class="b-img b-img-row"><span class="b-chip"><img src="https://img.test/d.png" alt="D" loading="lazy" style="max-width:48px"></span></div>
+<div class="b-img b-img-row"><img src="https://img.test/e.png" alt="E" loading="lazy"><span class="b-beside">Wordmark</span></div>
+<div class="b-btn" style="text-align:left"><a class="btn" href="https://d.test">Left</a></div>
+<div class="b-btn" style="text-align:center"><a class="btn" href="https://d.test">Centre</a></div>
+<div class="b-btn b-btn-row" style="text-align:right;justify-content:flex-end"><a class="btn" href="https://d.test">Right</a><a class="b-link" href="mailto:a@b.test">or here</a></div>
+
+<hr>
+<div style="height:12px"></div>
+<div style="height:56px"></div>
+<p>Hot only</p>
+<div class="cols cols-2"><div class="col"><p>Left cell</p></div>
+<div class="col"><div class="b-img"><img src="https://img.test/f.png" alt="F" loading="lazy"></div></div></div>
+<div class="cols cols-3"><div class="col"><h3>x</h3></div>
+<div class="col"></div>
+<div class="col"><div class="b-btn" style="text-align:center"><a class="btn" href="https://e.test">Go</a></div></div></div></section>
+</main>
+</body>
+</html>"
+`;
+
+exports[`back-compat: no design attributes = unchanged output > kitchen sink: email, page and text snapshots 3`] = `
+"Title
+
+Sub link (https://a.test)
+
+Plain heading
+
+Big
+
+Legacy **markdown** {{first_name}}
+
+Hello there (https://b.test){{first_name}}
+
+- One
+- Two
+
+1. One
+2. Two
+
+1. A
+2. B
+3. C
+
+> Quoted
+
+Note
+
+Label
+
+Accent label
+
+1 — a
+2 — b
+3 — c
+
+x — y
+
+[A]
+
+[B]
+
+[C]
+
+[D]
+
+[E] Wordmark
+
+Left: https://d.test
+
+Centre: https://d.test
+
+Right: https://d.test
+or here: mailto:a@b.test
+
+—
+
+{{#if tag:hot}}Hot only
+{{/if}}
+Left cell
+
+[F]
+
+x
+
+Go: https://e.test
+
+%%CONTENT_AREA%%
+
+Title
+
+Sub link (https://a.test)
+
+Plain heading
+
+Big
+
+Legacy **markdown** {{first_name}}
+
+Hello there (https://b.test){{first_name}}
+
+- One
+- Two
+
+1. One
+2. Two
+
+1. A
+2. B
+3. C
+
+> Quoted
+
+Note
+
+Label
+
+Accent label
+
+1 — a
+2 — b
+3 — c
+
+x — y
+
+[A]
+
+[B]
+
+[C]
+
+[D]
+
+[E] Wordmark
+
+Left: https://d.test
+
+Centre: https://d.test
+
+Right: https://d.test
+or here: mailto:a@b.test
+
+—
+
+{{#if tag:hot}}Hot only
+{{/if}}
+Left cell
+
+[F]
+
+x
+
+Go: https://e.test
+
+Title
+
+Sub link (https://a.test)
+
+Plain heading
+
+Big
+
+Legacy **markdown** {{first_name}}
+
+Hello there (https://b.test){{first_name}}
+
+- One
+- Two
+
+1. One
+2. Two
+
+1. A
+2. B
+3. C
+
+> Quoted
+
+Note
+
+Label
+
+Accent label
+
+1 — a
+2 — b
+3 — c
+
+x — y
+
+[A]
+
+[B]
+
+[C]
+
+[D]
+
+[E] Wordmark
+
+Left: https://d.test
+
+Centre: https://d.test
+
+Right: https://d.test
+or here: mailto:a@b.test
+
+—
+
+{{#if tag:hot}}Hot only
+{{/if}}
+Left cell
+
+[F]
+
+x
+
+Go: https://e.test
+
+Title
+
+Sub link (https://a.test)
+
+Plain heading
+
+Big
+
+Legacy **markdown** {{first_name}}
+
+Hello there (https://b.test){{first_name}}
+
+- One
+- Two
+
+1. One
+2. Two
+
+1. A
+2. B
+3. C
+
+> Quoted
+
+Note
+
+Label
+
+Accent label
+
+1 — a
+2 — b
+3 — c
+
+x — y
+
+[A]
+
+[B]
+
+[C]
+
+[D]
+
+[E] Wordmark
+
+Left: https://d.test
+
+Centre: https://d.test
+
+Right: https://d.test
+or here: mailto:a@b.test
+
+—
+
+{{#if tag:hot}}Hot only
+{{/if}}
+Left cell
+
+[F]
+
+x
+
+Go: https://e.test"
+`;
+
+exports[`renderers > button colours, radius, size, full width and link colour 1`] = `
+"<table role="presentation" border="0" cellpadding="0" cellspacing="0" align="center" style="margin:8px auto 18px;"><tr><td style="background:#0b1f3a;border-radius:999px;font-size:18px;line-height:24px;"><a href="https://a.test" style="display:inline-block;padding:15px 30px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:18px;font-weight:600;line-height:24px;color:#fcb900;text-decoration:none;">Book</a></td></tr></table>
+<div style="text-align:left;font-size:0;line-height:0;margin:8px 0 8px;"><div class="ds-cta" style="display:inline-block;vertical-align:middle;margin:0 24px 10px 0;"><table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%"><tr><td style="background:#2563eb;border-radius:0px;font-size:16px;line-height:20px;"><a href="https://a.test" style="display:block;padding:11px 22px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;font-weight:600;line-height:20px;color:#ffffff;text-decoration:none;text-align:center;">Wide</a></td></tr></table></div><div class="ds-cta-link" style="display:inline-block;vertical-align:middle;margin:0 0 10px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;font-weight:600;line-height:1.4;"><a href="mailto:a@b.test" style="font-size:16px;line-height:1.4;color:#ce423b;text-decoration:underline;">or reply</a></div></div>"
+`;
+
+exports[`renderers > canvas: full-width backdrop table + centred card; font size and link colour reach the blocks 1`] = `
+"<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { margin:0; padding:0; background:#ffffff; }
+  .email { max-width:640px; margin:0; padding:32px 24px; text-align:left;
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+    font-size:16px; line-height:1.6; color:#1f2328; }
+  .email h1 { font-size:24px; font-weight:700; margin:0 0 16px; line-height:1.25; }
+  .email h2 { font-size:18px; font-weight:700; margin:28px 0 10px; line-height:1.3; }
+  .email h3 { font-size:16px; font-weight:700; margin:22px 0 8px; }
+  .email p { margin:0 0 16px; }
+  .email ul, .email ol { margin:0 0 16px; padding-left:22px; }
+  .email li { margin:0 0 8px; }
+  .email a { color:#2563eb; text-decoration:none; }
+  .email a:hover { text-decoration:underline; }
+  .email img { max-width:100%; height:auto; }
+  .email blockquote { margin:0 0 16px; padding:4px 0 4px 16px;
+    border-left:3px solid #e5e7eb; color:#57606a; }
+  .email hr { border:none; border-top:1px solid #e5e7eb; margin:24px 0; }
+  .email code { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:14px;
+    background:#f4f4f5; padding:1px 5px; border-radius:4px; }
+  .signature { margin-top:28px; font-size:14px; line-height:1.5; }
+  .signature a { text-decoration:none; }
+  .footer { max-width:640px; margin:0; padding:16px 24px 40px; text-align:left;
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+    font-size:12px; line-height:1.5; color:#8b949e; }
+  .footer a { color:#8b949e; text-decoration:underline; }
+  @media (max-width:480px) {
+    .ds-display { font-size:34px !important; line-height:1.1 !important; }
+    .ds-sec-lg { padding:28px 20px !important; }
+    .ds-sec-md { padding:22px 18px !important; }
+    .ds-cta-link { display:block !important; }
+  }
+</style>
+<style>
+  .email a { color:#ce423b; }
+  .footer a { color:#8b949e; }
+</style>
+</head>
+<body style="margin:0;padding:0;background-color:#0b1f3a;">
+
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#0b1f3a" style="background-color:#0b1f3a;"><tr><td align="center" style="padding:24px 12px;">
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="600" align="center" bgcolor="#ffffff" style="width:100%;max-width:600px;margin:0 auto;background-color:#ffffff;border-radius:16px;border-collapse:separate;overflow:hidden;"><tr>
+<td class="email" style="max-width:none;padding:0;color:#333333;font-size:17px;border-radius:16px;">
+<!--ds-canvas--><p style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:17px;line-height:1.6;margin:0 0 16px;">Hi <a href="https://a.test" style="color:#ce423b;text-decoration:underline;">there</a></p>
+<div class="signature" style="padding:0 24px 24px;"><div class="missive_signature"><div>--</div><div><strong>Jane Doe</strong></div><div><span style="font-size: 13px">Founder</span></div><div><br></div><div><a href="https://ourco.example"><strong><span style="color: #005CD4">Ourco</span></strong></a><strong><span style="color: rgb(33, 33, 33)">&nbsp;</span></strong><span style="color: rgb(33, 33, 33)">—<span style="font-size: 13px">&nbsp;</span></span><em><span style="color: rgb(33, 33, 33)"><span style="font-size: 13px">Built For Where You're Growing</span></span></em></div><div><a href="https://social.example.net/ourco"><span style="color: #005CD4"><span style="font-size: 13px">@ourco</span></span></a><strong><span style="color: #005CD4"><span style="font-size: 13px">&nbsp;</span></span></strong><span style="font-size: 13px">|</span><span style="color: #005CD4"><span style="font-size: 13px">&nbsp;</span></span><a href="mailto:support@ourco.example"><span style="color: #005CD4"><span style="font-size: 13px">Get Support</span></span></a><span style="color: #005CD4"><span style="font-size: 13px">&nbsp;| </span></span><a href="https://ourco.example/book/"><span style="color: #005CD4"><span style="font-size: 13px">Book a Call</span></span></a></div></div></div>
+</td></tr></table>
+<div class="footer" style="max-width:600px;margin:0 auto;color:#8b949e;">
+Don't want these emails? <a href="%%UNSUB_URL%%">Unsubscribe here</a>.
+</div>
+</td></tr></table>
+</body>
+</html>"
+`;
+
+exports[`renderers > divider, spacer and columns options 1`] = `
+"<div style="border-top:3px solid #0b1f3a;margin:24px 0;font-size:0;line-height:0;width:25%;">&nbsp;</div>
+<div style="height:40px;font-size:0;line-height:0;">&nbsp;</div>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 16px;"><tr><td width="50%" valign="middle" style="padding:0 12px;font-size:16px;line-height:1.6;"><p style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;margin:0 0 16px;">L</p></td><td width="50%" valign="middle" style="padding:0 12px;font-size:16px;line-height:1.6;"><p style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;margin:0 0 16px;">R</p></td></tr></table>
+<div style="text-align:left;font-size:0;margin:0 0 16px;"><div class="stack" style="display:inline-block;width:100%;max-width:300px;vertical-align:top;"><div style="padding:0 0px;font-size:16px;line-height:1.6;"></div></div><div class="stack" style="display:inline-block;width:100%;max-width:300px;vertical-align:top;"><div style="padding:0 0px;font-size:16px;line-height:1.6;"></div></div></div>"
+`;
+
+exports[`renderers > per-block alignment overrides the section default; space below replaces the margin 1`] = `
+"<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#1a9ec4" style="background-color:#1a9ec4;margin:0;border-collapse:separate;"><tr><td class="ds-sec ds-sec-lg" align="center" style="padding:40px 36px;color:#000000;font-family:Inter,Helvetica,Arial,sans-serif;text-align:center;"><div style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:20px;font-weight:700;line-height:1.25;margin:0 0 14px;text-align:left;color:#0b1f3a;">Left</div>
+<p style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;margin:0 0 48px;text-align:right;">Right</p>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin:0 0 16px auto;"><tr><td width="28" style="width:28px;"><div style="border-top:2px solid #000000;width:28px;font-size:0;line-height:0;">&nbsp;</div></td><td style="padding-left:10px;font-family:Inter,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.4;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#000000;">Eyebrow</td></tr></table>
+<div style="margin:0 0 16px;"><img src="https://a.test/x.png" alt="" width="528" style="display:block;width:100%;max-width:528px;height:auto;border-radius:6px;"></div>
+<div style="margin:0 0 8px;"><img src="https://a.test/y.png" alt="" width="100" style="display:block;margin:0 0 0 auto;width:100%;max-width:100px;height:auto;border-radius:6px;"></div>
+<div style="font-size:0;line-height:0;margin:8px 0 12px;text-align:center;"><div class="ds-ms" style="display:inline-block;width:100%;max-width:260px;vertical-align:top;"><div style="padding:0 12px 12px 0;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.4;text-align:center;"><div style="font-size:20px;font-weight:700;line-height:1.25;margin:0 0 4px;">1</div><div style="font-size:13px;line-height:1.4;">a</div></div></div><div class="ds-ms" style="display:inline-block;width:100%;max-width:260px;vertical-align:top;"><div style="padding:0 12px 12px 0;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.4;text-align:center;"><div style="font-size:20px;font-weight:700;line-height:1.25;margin:0 0 4px;">2</div><div style="font-size:13px;line-height:1.4;">b</div></div></div></div></td></tr></table>"
+`;
+
+exports[`renderers > section custom padding, radius, border, background image, accent 1`] = `
+"<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#1a9ec4" style="background-color:#1a9ec4;margin:0;border-radius:16px;border:2px solid #0b1f3a;border-collapse:separate;"><tr><td class="ds-sec" align="left" background="https://img.test/hero.jpg" style="padding:8px 24px 48px;color:#000000;font-family:Inter,Helvetica,Arial,sans-serif;text-align:left;border-radius:16px;background-image:url(https://img.test/hero.jpg);background-size:cover;background-position:center;"><table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin:0 0 16px;"><tr><td width="28" style="width:28px;"><div style="border-top:2px solid #ce423b;width:28px;font-size:0;line-height:0;">&nbsp;</div></td><td style="padding-left:10px;font-family:Inter,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.4;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#000000;">Label</td></tr></table>
+<div style="font-size:0;line-height:0;margin:8px 0 12px;border-top:4px solid #ce423b;padding-top:16px;text-align:left;"><div class="ds-ms" style="display:inline-block;width:100%;max-width:272px;vertical-align:top;"><div style="padding:0 12px 12px 0;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.4;text-align:left;"><div style="font-size:20px;font-weight:700;line-height:1.25;margin:0 0 4px;">1</div><div style="font-size:13px;line-height:1.4;">a</div></div></div><div class="ds-ms" style="display:inline-block;width:100%;max-width:272px;vertical-align:top;"><div style="padding:0 12px 12px 0;font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.4;text-align:left;"><div style="font-size:20px;font-weight:700;line-height:1.25;margin:0 0 4px;">2</div><div style="font-size:13px;line-height:1.4;">b</div></div></div></div>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 16px;text-align:left;"><tr><td width="44" valign="top" style="width:44px;padding:14px 0;"><div style="width:28px;height:28px;border:2px solid #ce423b;border-radius:50%;text-align:center;font-family:Inter,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;line-height:28px;">1</div></td><td valign="top" style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;padding:17px 0 14px;">A</td></tr><tr><td width="44" valign="top" style="width:44px;padding:14px 0;border-top:1px solid #e3e3e3;"><div style="width:28px;height:28px;border:2px solid #ce423b;border-radius:50%;text-align:center;font-family:Inter,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;line-height:28px;">2</div></td><td valign="top" style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;padding:17px 0 14px;border-top:1px solid #e3e3e3;">B</td></tr></table>
+<div style="border-top:1px solid #ce423b;margin:24px 0;font-size:0;line-height:0;">&nbsp;</div></td></tr></table>"
+`;

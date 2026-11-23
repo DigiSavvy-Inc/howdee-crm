@@ -1,0 +1,44 @@
+{
+	"case": "reads.company-contacts",
+	"source": "hand-authored",
+	"model": "claude-sonnet-5-5",
+	"effort": "medium",
+	"recorded_at": "2026-10-21T00:00:00.000Z",
+	"responses": [
+		{
+			"stop_reason": "tool_use",
+			"content": [
+				{
+					"type": "tool_use",
+					"id": "toolu_eval_05",
+					"name": "list_companies",
+					"input": {
+						"q": "Acme"
+					}
+				}
+			]
+		},
+		{
+			"stop_reason": "tool_use",
+			"content": [
+				{
+					"type": "tool_use",
+					"id": "toolu_eval_06",
+					"name": "get_company",
+					"input": {
+						"company_id": "$ref:company.acme-widgets"
+					}
+				}
+			]
+		},
+		{
+			"stop_reason": "end_turn",
+			"content": [
+				{
+					"type": "text",
+					"text": "At Acme Widgets you know **Dana Reyes** and **Jo Bauer**."
+				}
+			]
+		}
+	]
+}

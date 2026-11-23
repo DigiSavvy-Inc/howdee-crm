@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="text-scale" content="scale" />
+		<meta name="color-scheme" content="light dark" />
+		<!-- PWA (#135): manifest, icons, browser chrome color (matches --header-bg).
+		     The manifest is the src/routes/manifest.webmanifest route (#188, branding settings);
+		     apple-mobile-web-app-title is set from the short name in +layout.svelte. -->
+		<link rel="manifest" href="/manifest.webmanifest" />
+		<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+		<meta name="theme-color" content="#202020" media="(prefers-color-scheme: dark)" />
+		<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+		<meta name="mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+		<script>
+			// Apply saved theme before first paint to avoid a flash. 'system' (or unset)
+			// leaves no attribute, so the prefers-color-scheme media query drives it.
+			try {
+				var t = localStorage.getItem('theme');
+				if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
+				// Nav layout (#134): the server stamps data-nav for signed-in pages; otherwise
+				// fall back to the localStorage mirror of the user's preference.
+				var n = localStorage.getItem('nav');
+				if (!document.documentElement.hasAttribute('data-nav') && (n === 'left' || n === 'top'))
+					document.documentElement.setAttribute('data-nav', n);
+			} catch (e) {}
+		</script>
+		%sveltekit.head%
+	</head>
+	<body data-sveltekit-preload-data="hover">
+		<div style="display: contents">%sveltekit.body%</div>
+	</body>
+</html>

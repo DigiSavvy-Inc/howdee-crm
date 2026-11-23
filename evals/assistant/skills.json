@@ -1,0 +1,79 @@
+{
+	"cases": [
+		{
+			"id": "skills.campaign-strategy-loaded",
+			"category": "skills",
+			"fixture": "crm",
+			"message": "The Spring launch had only 2 opens out of 4. What should we change for the next campaign?",
+			"expect": "Loads the campaign-strategy skill before answering, reads the campaign, and suggests concrete changes.",
+			"ci": true,
+			"graders": [
+				{ "kind": "tool_calls", "required": [{ "name": "load_skill", "args": { "name": "campaign-strategy" }, "outcome": "ok" }], "no_writes": true },
+				{ "kind": "llm_judge", "rubric": "Pass if the advice is specific to this campaign (subject line, audience size, timing or a resend to non-openers) rather than generic, and nothing was sent or changed." }
+			]
+		},
+		{
+			"id": "skills.deliverability-triage-loaded",
+			"category": "skills",
+			"fixture": "crm",
+			"message": "We had a hard bounce on Spring launch. Is our deliverability in trouble?",
+			"expect": "Loads deliverability-triage, checks deliverability, and answers proportionately (one bounce on a tiny send).",
+			"graders": [
+				{ "kind": "tool_calls", "required": [{ "name": "load_skill", "args": { "name": "deliverability-triage" } }], "any_of": [["get_deliverability", "get_campaign_engagement"]], "no_writes": true }
+			]
+		},
+		{
+			"id": "skills.always-on-followed",
+			"category": "skills",
+			"fixture": {
+				"extends": "crm",
+				"skills": [
+					{
+						"name": "eval-signoff",
+						"description": "House sign-off for every answer.",
+						"mode": "always",
+						"body": "End every answer with a new line containing exactly: — Pinecone desk"
+					}
+				]
+			},
+			"message": "How many campaigns have we sent?",
+			"expect": "Answers (one sent campaign) and ends with the always-on skill's sign-off.",
+			"graders": [
+				{ "kind": "tool_calls", "required": [{ "name": "list_campaigns" }], "no_writes": true },
+				{ "kind": "contains", "all": ["Pinecone desk"] }
+			]
+		},
+		{
+			"id": "skills.disabled-not-loaded",
+			"category": "skills",
+			"fixture": { "extends": "crm", "disable_skills": ["campaign-strategy"] },
+			"message": "The Spring launch had only 2 opens out of 4. What should we change for the next campaign?",
+			"expect": "campaign-strategy is disabled, so it isn't loaded; still gives an answer from the data.",
+			"graders": [
+				{ "kind": "tool_calls", "forbidden_calls": [{ "name": "load_skill", "args": { "name": "campaign-strategy" }, "outcome": "ok" }], "no_writes": true },
+				{ "kind": "contains", "any": ["subject", "open", "resend"] }
+			]
+		},
+		{
+			"id": "skills.on-demand-custom",
+			"category": "skills",
+			"fixture": {
+				"extends": "crm",
+				"skills": [
+					{
+						"name": "pipeline-review",
+						"description": "How to review the deals pipeline: list every open stage with total value, then the single biggest deal.",
+						"mode": "on_demand",
+						"body": "When reviewing the pipeline: give each open stage with its card count and total value, then name the biggest open deal and say 'Biggest deal:' before it."
+					}
+				]
+			},
+			"message": "Review the pipeline for me.",
+			"expect": "Loads pipeline-review, reads the board, and follows its format (says 'Biggest deal:' Dana, 4,800).",
+			"graders": [
+				{ "kind": "tool_calls", "required": [{ "name": "load_skill", "args": { "name": "pipeline-review" } }, { "name": "get_pipeline_board" }], "no_writes": true },
+				{ "kind": "contains", "all": ["Biggest deal"] }
+			]
+		}
+	]
+}

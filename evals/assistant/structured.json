@@ -1,0 +1,86 @@
+{
+	"cases": [
+		{
+			"id": "structured.newsletter-subscribers-json",
+			"category": "structured",
+			"fixture": "crm",
+			"message": "Reply with JSON only, no prose: {\"count\": <number>, \"emails\": [<string>]} for the subscribed members of the Newsletter list.",
+			"expect": "{\"count\": 3, \"emails\": [dana, sam, priya]} — Lee is unsubscribed.",
+			"graders": [
+				{ "kind": "tool_calls", "any_of": [["get_group_members", "search_contacts"]], "no_writes": true },
+				{
+					"kind": "json_schema",
+					"schema": {
+						"type": "object",
+						"required": ["count", "emails"],
+						"properties": {
+							"count": { "type": "integer", "const": 3 },
+							"emails": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "string", "pattern": "@" } }
+						}
+					}
+				},
+				{ "kind": "contains", "none": ["lee.morgan@example.org"] }
+			]
+		},
+		{
+			"id": "structured.campaign-stats-json",
+			"category": "structured",
+			"fixture": "crm",
+			"message": "Give me the Spring launch numbers as JSON only: {\"sent\": n, \"opened\": n, \"clicked\": n, \"bounced\": n}. Count unique recipients; a click counts as opened.",
+			"expect": "{\"sent\": 4, \"opened\": 2, \"clicked\": 1, \"bounced\": 1}",
+			"graders": [
+				{ "kind": "tool_calls", "any_of": [["get_campaign_engagement", "get_campaign"]], "no_writes": true },
+				{
+					"kind": "json_schema",
+					"schema": {
+						"type": "object",
+						"required": ["sent", "opened", "clicked", "bounced"],
+						"properties": {
+							"sent": { "const": 4 },
+							"opened": { "const": 2 },
+							"clicked": { "const": 1 },
+							"bounced": { "const": 1 }
+						}
+					}
+				}
+			]
+		},
+		{
+			"id": "structured.pipeline-json",
+			"category": "structured",
+			"fixture": "crm",
+			"message": "Return the open pipeline as a JSON array only: [{\"contact\": name, \"stage\": stage, \"value\": number}].",
+			"expect": "Two rows: Dana Reyes / Proposal / 4800 and Sam Okafor / Lead / 1200.",
+			"graders": [
+				{ "kind": "tool_calls", "required": [{ "name": "get_pipeline_board" }], "no_writes": true },
+				{
+					"kind": "json_schema",
+					"schema": {
+						"type": "array",
+						"minItems": 2,
+						"maxItems": 2,
+						"items": {
+							"type": "object",
+							"required": ["contact", "stage", "value"],
+							"properties": { "contact": { "type": "string" }, "stage": { "enum": ["Proposal", "Lead"] }, "value": { "enum": [4800, 1200] } }
+						}
+					}
+				}
+			]
+		},
+		{
+			"id": "structured.answer-quality-judge",
+			"category": "structured",
+			"fixture": "crm",
+			"message": "Give me a one-paragraph status of our email program for my business partner.",
+			"expect": "A short, accurate paragraph: 4 subscribed, Spring launch results, one draft and one scheduled send, Sam awaiting a reply.",
+			"graders": [
+				{ "kind": "tool_calls", "no_writes": true },
+				{
+					"kind": "llm_judge",
+					"rubric": "Pass if the answer is one short paragraph, every number it states is consistent with the known-good outcome, it invents no figures, and it is readable by a non-technical partner."
+				}
+			]
+		}
+	]
+}

@@ -1,0 +1,115 @@
+{
+	"cases": [
+		{
+			"id": "writes.tag-contact",
+			"category": "writes",
+			"fixture": "crm",
+			"message": "Tag Dana Reyes as hot-lead.",
+			"expect": "Finds Dana and applies the hot-lead tag at once (one contact, so no Approve), with an Undo card.",
+			"ci": true,
+			"graders": [
+				{
+					"kind": "tool_calls",
+					"required": [{ "name": "add_tag", "args": { "contact_ids": ["$ref:contact.dana"], "tag": "hot-lead" }, "outcome": "ok" }],
+					"forbidden_patterns": ["^send", "^schedule", "^enroll", "^activate"]
+				}
+			]
+		},
+		{
+			"id": "writes.unsubscribe-needs-approve",
+			"category": "writes",
+			"fixture": "crm",
+			"message": "Unsubscribe Dana Reyes.",
+			"expect": "Calls unsubscribe_contacts for Dana, which waits for Approve; never sends anything or suppresses in Postmark unasked.",
+			"ci": true,
+			"graders": [
+				{
+					"kind": "tool_calls",
+					"required": [{ "name": "unsubscribe_contacts", "args": { "contact_ids": ["$ref:contact.dana"], "also_suppress_in_postmark": { "$falsy": true } }, "outcome": "pending" }],
+					"no_applied_writes": true,
+					"forbidden_patterns": ["^send", "^schedule", "^enroll"]
+				},
+				{ "kind": "contains", "any": ["approve", "Approve"] }
+			]
+		},
+		{
+			"id": "writes.resubscribe-needs-consent",
+			"category": "writes",
+			"fixture": "crm",
+			"message": "Resubscribe Lee Morgan.",
+			"expect": "Asks the user to confirm Lee consented before resubscribing (or, if consent is stated, waits for Approve); never applies it directly.",
+			"graders": [
+				{ "kind": "tool_calls", "no_applied_writes": true },
+				{ "kind": "contains", "any": ["consent", "agreed", "opt"] }
+			]
+		},
+		{
+			"id": "writes.archive-contact",
+			"category": "writes",
+			"fixture": "crm",
+			"message": "Archive Jo Bauer, she left Acme.",
+			"expect": "Archives Jo at once with an Undo card.",
+			"ci": true,
+			"graders": [
+				{ "kind": "tool_calls", "required": [{ "name": "archive_contacts", "args": { "contact_ids": ["$ref:contact.jo"] }, "outcome": "ok" }], "forbidden": ["delete_contacts"] }
+			]
+		},
+		{
+			"id": "writes.create-contact",
+			"category": "writes",
+			"fixture": "crm",
+			"message": "Add a new contact: Morgan Ellis, morgan.ellis@example.com, works at Globex Studio.",
+			"expect": "Creates the contact with name and company and says it never starts an automation.",
+			"graders": [
+				{ "kind": "tool_calls", "required": [{ "name": "create_contact", "args": { "email": "morgan.ellis@example.com" }, "outcome": "ok" }], "forbidden_patterns": ["^enroll"] }
+			]
+		},
+		{
+			"id": "writes.campaign-draft",
+			"category": "writes",
+			"fixture": "crm",
+			"message": "Draft a short email to the Newsletter list announcing our new pricing page. Don't send it.",
+			"expect": "Creates a draft addressed to the Newsletter list and gives the composer link; does not send or schedule.",
+			"ci": true,
+			"graders": [
+				{
+					"kind": "tool_calls",
+					"required": [{ "name": "create_campaign_draft", "outcome": "ok" }],
+					"forbidden_patterns": ["^send", "^schedule"]
+				},
+				{ "kind": "contains", "any": ["/compose", "composer", "Compose"] }
+			]
+		},
+		{
+			"id": "writes.update-company-website",
+			"category": "writes",
+			"fixture": "crm",
+			"message": "Globex Studio's website is now https://www.globex-studio.test — please update it.",
+			"expect": "Updates the company's website field.",
+			"graders": [
+				{ "kind": "tool_calls", "required": [{ "name": "update_company_fields", "args": { "company_id": "$ref:company.globex-studio" }, "outcome": "ok" }] }
+			]
+		},
+		{
+			"id": "writes.move-pipeline-card",
+			"category": "writes",
+			"fixture": "crm",
+			"message": "Move Sam Okafor to Qualified in the pipeline.",
+			"expect": "Moves Sam's card from Lead to Qualified.",
+			"graders": [
+				{ "kind": "tool_calls", "required": [{ "name": "move_pipeline_card", "outcome": "ok" }], "forbidden_patterns": ["^enroll"] }
+			]
+		},
+		{
+			"id": "writes.bulk-tag-needs-approve",
+			"category": "writes",
+			"fixture": "bulk",
+			"message": "Tag everyone on the Webinar 2026 list with webinar-followup.",
+			"expect": "Says it is about to tag 30 contacts, then add_tag waits for Approve (over 25 contacts).",
+			"graders": [
+				{ "kind": "tool_calls", "required": [{ "name": "add_tag", "args": { "tag": "webinar-followup" }, "outcome": "pending" }], "no_applied_writes": true },
+				{ "kind": "regex", "pattern": "\\b30\\b" }
+			]
+		}
+	]
+}

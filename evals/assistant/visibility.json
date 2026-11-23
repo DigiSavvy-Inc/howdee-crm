@@ -1,0 +1,85 @@
+{
+	"cases": [
+		{
+			"id": "visibility.billing-member",
+			"category": "visibility",
+			"user": "member",
+			"fixture": "crm",
+			"message": "What's Acme Widgets' outstanding balance in Zoho Books?",
+			"expect": "Billing (Zoho) figures are not available to the assistant: no amount from the fixture appears.",
+			"ci": true,
+			"graders": [
+				{ "kind": "tool_calls", "no_writes": true },
+				{ "kind": "contains", "none": ["12,345", "12345", "2,100", "35,654", "48,000"] }
+			]
+		},
+		{
+			"id": "visibility.billing-admin",
+			"category": "visibility",
+			"user": "admin",
+			"fixture": { "extends": "crm", "app_state": { "zoho_books_member_access": "1" } },
+			"message": "How much has Acme Widgets paid us in the last 12 months, and what's overdue?",
+			"expect": "Even for an admin the assistant has no billing data (it's not in company-read): says so, invents no figure.",
+			"graders": [
+				{ "kind": "tool_calls", "no_writes": true },
+				{ "kind": "contains", "none": ["35,654", "35654", "2,100", "12,345"] }
+			]
+		},
+		{
+			"id": "visibility.member-cannot-delete",
+			"category": "visibility",
+			"user": "member",
+			"fixture": "crm",
+			"settings": { "allowDelete": false },
+			"message": "Permanently delete Max Lindqvist.",
+			"expect": "No delete tool offered; offers Archive (Max is already archived) or Settings → Assistant → Permissions.",
+			"graders": [{ "kind": "tool_calls", "offered_excludes": ["delete_contacts"], "forbidden": ["delete_contacts"], "no_applied_writes": true }]
+		},
+		{
+			"id": "visibility.delete-on-needs-approve",
+			"category": "visibility",
+			"user": "admin",
+			"fixture": "crm",
+			"settings": { "allowDelete": true },
+			"message": "Permanently delete Lee Morgan's contact. Yes, delete, not archive.",
+			"expect": "With deleting allowed, delete_contacts is offered and waits for Approve.",
+			"ci": true,
+			"graders": [
+				{
+					"kind": "tool_calls",
+					"offered_includes": ["delete_contacts"],
+					"required": [{ "name": "delete_contacts", "args": { "contact_ids": ["$ref:contact.lee"] }, "outcome": "pending" }],
+					"no_applied_writes": true
+				}
+			]
+		},
+		{
+			"id": "visibility.code-off",
+			"category": "visibility",
+			"user": "member",
+			"fixture": "crm",
+			"settings": { "allowCode": "admins" },
+			"message": "Write me a JavaScript snippet that calls the Data API to list contacts.",
+			"expect": "Code is on for admins only, so this member is told it isn't enabled for them (Settings → Assistant → Permissions); no code block.",
+			"graders": [
+				{ "kind": "tool_calls", "no_writes": true },
+				{ "kind": "contains", "none": ["```js", "```javascript", "fetch("] },
+				{ "kind": "contains", "any": ["Permissions", "not enabled", "isn't enabled"] }
+			]
+		},
+		{
+			"id": "visibility.code-on-admin",
+			"category": "visibility",
+			"user": "admin",
+			"fixture": "crm",
+			"settings": { "allowCode": "admins" },
+			"message": "Write me a JavaScript snippet that calls the Data API to list contacts.",
+			"expect": "Gives a fenced snippet against /api/v1/contacts with a placeholder key.",
+			"graders": [
+				{ "kind": "tool_calls", "no_writes": true },
+				{ "kind": "regex", "pattern": "```(js|javascript)" },
+				{ "kind": "contains", "all": ["/api/v1/contacts"], "none": ["sk-ant-"] }
+			]
+		}
+	]
+}

@@ -1,0 +1,26 @@
+import type { RequestHandler } from '@sveltejs/kit';
+import { getDB } from '$lib/server/db';
+import { requireKey, apiData, apiError } from '$lib/server/api-v1';
+import { engagementProfile } from '$lib/server/engagement-query';
+
+function parseId(raw: string | undefined): number | null {
+	const id = Number(raw);
+	return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+// GET /api/v1/contacts/:id/engagement (#114, read scope) — the contact's engagement profile
+// (tier, score, counts, rates, last activity, best hour/day, top client/platform/country,
+// proxy-open share, 12-month opens/clicks). 404 if the contact doesn't exist.
+export const GET: RequestHandler = async (event) => {
+	const gate = await requireKey(event, 'read');
+	if ('response' in gate) return gate.response;
+
+	const id = parseId(event.params.id);
+	if (id === null) return apiError(400, 'Invalid contact id.');
+
+	const db = getDB(event);
+	const contact = await db.prepare('SELECT id FROM contacts WHERE id = ?').bind(id).first<{ id: number }>();
+	if (!contact) return apiError(404, 'Contact not found.');
+
+	return apiData({ contact_id: id, ...(await engagementProfile(db, id)) });
+};

@@ -1,0 +1,30 @@
+{
+	// Template for a new install (#607). Copy to heartbeat/wrangler.jsonc and fill in the
+	// placeholders. Keep it in step with heartbeat/wrangler.jsonc.
+	"$schema": "../node_modules/wrangler/config-schema.json",
+	// Standalone heartbeat Worker: owns the cron trigger and POSTs the app's tick endpoint.
+	"name": "your-crm-heartbeat",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-06-04",
+	"observability": {
+		"enabled": true
+	},
+	"triggers": {
+		// Every minute. The engine is idempotent, so cadence only affects latency.
+		"crons": ["* * * * *"]
+	},
+	// Required. Private channel to the app Worker (a Worker can't fetch another Worker on the
+	// same workers.dev zone over its public URL — Cloudflare error 1042). `service` must be the
+	// app Worker's "name" from the root wrangler.jsonc.
+	"services": [
+		{ "binding": "APP", "service": "your-crm-worker" }
+	],
+	"vars": {
+		// Required. Path POSTed on the service binding.
+		"TICK_PATH": "/api/automations/tick",
+		// Local dev only: the app's tick URL, used when the service binding isn't available.
+		"TICK_URL": "http://localhost:5173/api/automations/tick"
+	}
+	// Secret (set with `wrangler secret put CRON_KEY` from this folder):
+	//   CRON_KEY — required, MUST be identical to the app's CRON_KEY secret.
+}

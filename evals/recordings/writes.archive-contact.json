@@ -1,0 +1,48 @@
+{
+	"case": "writes.archive-contact",
+	"source": "hand-authored",
+	"model": "claude-sonnet-5-5",
+	"effort": "medium",
+	"recorded_at": "2026-10-21T00:00:00.000Z",
+	"responses": [
+		{
+			"stop_reason": "tool_use",
+			"content": [
+				{
+					"type": "tool_use",
+					"id": "toolu_eval_12",
+					"name": "search_contacts",
+					"input": {
+						"filter": {
+							"q": "Jo Bauer"
+						}
+					}
+				}
+			]
+		},
+		{
+			"stop_reason": "tool_use",
+			"content": [
+				{
+					"type": "tool_use",
+					"id": "toolu_eval_13",
+					"name": "archive_contacts",
+					"input": {
+						"contact_ids": [
+							"$ref:contact.jo"
+						]
+					}
+				}
+			]
+		},
+		{
+			"stop_reason": "end_turn",
+			"content": [
+				{
+					"type": "text",
+					"text": "Archived Jo Bauer. Her history is kept; Undo restores her."
+				}
+			]
+		}
+	]
+}

@@ -1,0 +1,57 @@
+{
+	"case": "skills.campaign-strategy-loaded",
+	"source": "hand-authored",
+	"model": "claude-sonnet-5-5",
+	"effort": "medium",
+	"recorded_at": "2026-10-21T00:00:00.000Z",
+	"responses": [
+		{
+			"stop_reason": "tool_use",
+			"content": [
+				{
+					"type": "tool_use",
+					"id": "toolu_eval_22",
+					"name": "load_skill",
+					"input": {
+						"name": "campaign-strategy"
+					}
+				}
+			]
+		},
+		{
+			"stop_reason": "tool_use",
+			"content": [
+				{
+					"type": "tool_use",
+					"id": "toolu_eval_23",
+					"name": "list_campaigns",
+					"input": {
+						"q": "Spring launch"
+					}
+				}
+			]
+		},
+		{
+			"stop_reason": "tool_use",
+			"content": [
+				{
+					"type": "tool_use",
+					"id": "toolu_eval_24",
+					"name": "get_campaign_engagement",
+					"input": {
+						"campaign_id": "$ref:campaign.spring"
+					}
+				}
+			]
+		},
+		{
+			"stop_reason": "end_turn",
+			"content": [
+				{
+					"type": "text",
+					"text": "With 4 recipients the rates swing a lot, but 2 of 4 opened and 1 clicked, so the content works once opened. Try a shorter, more concrete subject and a resend to the non-openers after 2 days."
+				}
+			]
+		}
+	]
+}

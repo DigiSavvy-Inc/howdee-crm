@@ -1,0 +1,33 @@
+{
+	"case": "jobs.write-request-declined",
+	"source": "hand-authored",
+	"model": "claude-sonnet-5-5",
+	"effort": "medium",
+	"recorded_at": "2026-10-21T00:00:00.000Z",
+	"responses": [
+		{
+			"stop_reason": "tool_use",
+			"content": [
+				{
+					"type": "tool_use",
+					"id": "toolu_eval_28",
+					"name": "search_contacts",
+					"input": {
+						"filter": {
+							"bounced": "hard"
+						}
+					}
+				}
+			]
+		},
+		{
+			"stop_reason": "end_turn",
+			"content": [
+				{
+					"type": "text",
+					"text": "This scheduled job is read-only, so I unsubscribed no one. 1 contact hard-bounced: Lee Morgan (already unsubscribed). A person can unsubscribe bounced contacts from Contacts → Filters → Bounced."
+				}
+			]
+		}
+	]
+}

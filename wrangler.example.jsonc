@@ -1,0 +1,77 @@
+{
+	// Template for a new install (#607). Copy to wrangler.jsonc and fill in the placeholders.
+	// Keep it in step with wrangler.jsonc: every binding and var there is here too, apart from
+	// the private-only keys listed in tests/wrangler-example-607.test.ts.
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	// Your Worker's name. Keep WORKER_NAME (below) and the heartbeat's service binding equal to it.
+	"name": "your-crm-worker",
+	"compatibility_date": "2026-06-04",
+	"compatibility_flags": [
+		"nodejs_als"
+	],
+	"main": ".svelte-kit/cloudflare/_worker.js",
+	"assets": {
+		"binding": "ASSETS",
+		"directory": ".svelte-kit/cloudflare"
+	},
+	"workers_dev": true,
+	"preview_urls": false,
+	// No "routes": add them only to serve the newsletter archive on another host of yours
+	// (e.g. example.com/newsletter and example.com/newsletter/*), and list those hosts in
+	// ARCHIVE_ROUTE_HOSTS.
+	"observability": {
+		"enabled": true
+	},
+	"d1_databases": [
+		{
+			// Create with `npx wrangler d1 create <name>` and paste the name and id it prints.
+			"binding": "DB",
+			"database_name": "your-database-name",
+			"database_id": "00000000-0000-0000-0000-000000000000",
+			"migrations_dir": "migrations"
+		}
+	],
+	"r2_buckets": [
+		{
+			// Uploaded media, logos, backups and mail bodies. Create with
+			// `npx wrangler r2 bucket create <name>`. Served via /img/[key].
+			"binding": "MEDIA",
+			"bucket_name": "your-media-bucket"
+		}
+	],
+	"vars": {
+		// Non-secret config. Secrets are listed in .dev.vars.example; set them in .dev.vars
+		// locally and with `wrangler secret put <NAME>` in production.
+
+		// Required. The default From address; its domain must be verified in Postmark.
+		"POSTMARK_FROM": "you@example.com",
+		// Required. Postmark broadcast message stream used for campaigns and automations.
+		"POSTMARK_STREAM": "broadcast",
+		// Required. Postmark transactional stream used for 1:1 sends, replies and operator mail.
+		"POSTMARK_STREAM_TX": "outbound",
+		// Required. Public origin of the app, no trailing slash. Settings → Domain overrides it.
+		"PUBLIC_BASE_URL": "https://crm.example.com",
+		// Optional. An address on your Postmark inbound domain; when set, sends get a
+		// per-recipient Reply-To there so replies reach /api/inbound. Empty = no reply capture.
+		"POSTMARK_INBOUND_ADDRESS": "",
+		// Optional. Where captured replies are forwarded so they also reach your inbox.
+		// Empty = replies are stored, not forwarded.
+		"INBOUND_FORWARD_TO": "",
+		// Optional. From address for scheduled assistant job emails (on the POSTMARK_FROM
+		// domain). Empty = Settings → Default From.
+		"REVIEW_FROM": "",
+		// Optional. Extra recipient for assistant job emails. Empty = Settings → Default From.
+		"REVIEW_TO": "",
+		// Optional. List a contact joins when /api/ingest or /api/luma names none.
+		// Empty = such requests are rejected with "No list configured".
+		"DEFAULT_LIST_NAME": "",
+		// Optional. Your Cloudflare account id, for Settings → Domain "Attach to this Worker".
+		// Empty = attaching reports "Not configured".
+		"CF_ACCOUNT_ID": "",
+		// Optional. This Worker's name ("name" above), for Settings → Domain "Attach to this Worker".
+		"WORKER_NAME": "your-crm-worker",
+		// Optional. Comma-separated hosts whose "routes" send /newsletter* here (newsletter
+		// archive public host). Keep in step with "routes". Empty = none.
+		"ARCHIVE_ROUTE_HOSTS": ""
+	}
+}

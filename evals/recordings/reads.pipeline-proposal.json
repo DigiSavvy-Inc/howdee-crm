@@ -1,0 +1,31 @@
+{
+	"case": "reads.pipeline-proposal",
+	"source": "hand-authored",
+	"model": "claude-sonnet-5-5",
+	"effort": "medium",
+	"recorded_at": "2026-10-21T00:00:00.000Z",
+	"responses": [
+		{
+			"stop_reason": "tool_use",
+			"content": [
+				{
+					"type": "tool_use",
+					"id": "toolu_eval_07",
+					"name": "get_pipeline_board",
+					"input": {
+						"stage": "Proposal"
+					}
+				}
+			]
+		},
+		{
+			"stop_reason": "end_turn",
+			"content": [
+				{
+					"type": "text",
+					"text": "One card in Proposal: **Dana Reyes**, 4,800 (Website retainer)."
+				}
+			]
+		}
+	]
+}

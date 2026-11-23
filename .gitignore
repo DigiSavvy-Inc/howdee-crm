@@ -1,0 +1,45 @@
+node_modules
+
+# Output
+.output
+.vercel
+.netlify
+.wrangler
+/.svelte-kit
+/build
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.*
+!.env.example
+!.env.test
+.dev.vars
+.deploy-notes.txt
+
+# Contact list exports (contain personal data — never commit)
+*.csv
+# CSV export routes are directories (e.g. reports/[id].csv/, forms/[id]/submissions.csv/), not data files.
+!src/routes/**/*.csv/
+!src/routes/**/*.csv/**
+
+# Vite
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# cmd-dispatch job state (worktrees, logs, archives)
+.dispatch/
+
+# Assistant eval runs (#391): full results hold transcripts; commit a .md summary when wanted
+evals/results/*.json
+
+# Hosted instances (#636, #637): instance files, generated configs, state, the one-time setup token
+# and D1 exports (instances/<slug>/backups/); fleet health keys stay in the env
+/instances/*
+!/instances/example.json.sample
+
+# Public export (#661): the scan's private list of people's names — never commit it
+/scripts/export-names.txt

@@ -1,0 +1,176 @@
+{
+	"cases": [
+		{
+			"id": "reads.contact-company",
+			"category": "reads",
+			"fixture": "crm",
+			"message": "Which company does Dana Reyes work for?",
+			"expect": "Looks Dana up and answers Acme Widgets.",
+			"ci": true,
+			"graders": [
+				{ "kind": "tool_calls", "required": [{ "name": "search_contacts", "args": { "filter": { "q": "dana" } }, "outcome": "ok" }], "no_writes": true },
+				{ "kind": "contains", "all": ["Acme Widgets"] }
+			]
+		},
+		{
+			"id": "reads.contact-tags-lists",
+			"category": "reads",
+			"fixture": "crm",
+			"message": "What tags and lists is Dana Reyes on?",
+			"expect": "Reports the vip tag and the Newsletter and Customers lists.",
+			"graders": [
+				{ "kind": "tool_calls", "any_of": [["search_contacts", "get_contact"]], "no_writes": true },
+				{ "kind": "contains", "all": ["vip", "Newsletter", "Customers"] }
+			]
+		},
+		{
+			"id": "reads.contact-custom-field",
+			"category": "reads",
+			"fixture": "crm",
+			"message": "Which plan is Dana Reyes on? It's in her custom fields.",
+			"expect": "Reads Dana's custom fields and answers pro.",
+			"graders": [
+				{ "kind": "tool_calls", "any_of": [["get_contact", "search_contacts"]], "no_writes": true },
+				{ "kind": "regex", "pattern": "\\bpro\\b" }
+			]
+		},
+		{
+			"id": "reads.campaign-stats",
+			"category": "reads",
+			"fixture": "crm",
+			"message": "How did the Spring launch campaign do?",
+			"expect": "Finds the campaign and reports engagement: 4 sent, 1 click, 2 opens, 1 bounce.",
+			"ci": true,
+			"graders": [
+				{
+					"kind": "tool_calls",
+					"any_of": [["get_campaign", "get_campaign_engagement"]],
+					"required": [{ "name": "get_campaign_engagement", "args": { "campaign_id": "$ref:campaign.spring" }, "outcome": "ok" }],
+					"no_writes": true
+				},
+				{ "kind": "regex", "pattern": "\\b4\\b" },
+				{ "kind": "contains", "any": ["click", "clicked"] }
+			]
+		},
+		{
+			"id": "reads.campaign-bounces",
+			"category": "reads",
+			"fixture": "crm",
+			"message": "Did anything bounce on the Spring launch email? Who?",
+			"expect": "Says one hard bounce, Lee Morgan.",
+			"graders": [
+				{ "kind": "tool_calls", "any_of": [["get_campaign_engagement", "get_campaign", "search_contacts"]], "no_writes": true },
+				{ "kind": "contains", "any": ["Lee", "lee.morgan@example.org"] }
+			]
+		},
+		{
+			"id": "reads.list-drafts",
+			"category": "reads",
+			"fixture": "crm",
+			"message": "Which campaigns are still drafts?",
+			"expect": "Lists the October product update draft (and not the sent or scheduled ones as drafts).",
+			"graders": [
+				{ "kind": "tool_calls", "required": [{ "name": "list_campaigns" }], "no_writes": true },
+				{ "kind": "contains", "all": ["October product update"] }
+			]
+		},
+		{
+			"id": "reads.dashboard-subscribers",
+			"category": "reads",
+			"fixture": "crm",
+			"message": "How many subscribed contacts do we have?",
+			"expect": "4 subscribed (Dana, Sam, Priya, Jo); Lee is unsubscribed and Max archived.",
+			"ci": true,
+			"graders": [
+				{ "kind": "tool_calls", "any_of": [["get_dashboard", "search_contacts"]], "no_writes": true },
+				{ "kind": "regex", "pattern": "\\b4\\b" }
+			]
+		},
+		{
+			"id": "reads.company-contacts",
+			"category": "reads",
+			"fixture": "crm",
+			"message": "Who do we know at Acme Widgets?",
+			"expect": "Names Dana Reyes and Jo Bauer.",
+			"ci": true,
+			"graders": [
+				{
+					"kind": "tool_calls",
+					"any_of": [["list_companies", "search_contacts"]],
+					"required": [{ "name": "get_company", "args": { "company_id": "$ref:company.acme-widgets" }, "outcome": "ok" }],
+					"no_writes": true
+				},
+				{ "kind": "contains", "all": ["Dana", "Jo"] }
+			]
+		},
+		{
+			"id": "reads.company-hours",
+			"category": "reads",
+			"fixture": "crm",
+			"message": "How many hours did we track for Acme Widgets in the last 30 days?",
+			"expect": "Answers 12.5 hours from the company's Timing metrics.",
+			"graders": [
+				{ "kind": "tool_calls", "required": [{ "name": "get_company" }], "no_writes": true },
+				{ "kind": "contains", "all": ["12.5"] }
+			]
+		},
+		{
+			"id": "reads.pipeline-proposal",
+			"category": "reads",
+			"fixture": "crm",
+			"message": "What's sitting in the Proposal stage of the pipeline, and for how much?",
+			"expect": "Dana Reyes, 4,800.",
+			"ci": true,
+			"graders": [
+				{ "kind": "tool_calls", "required": [{ "name": "get_pipeline_board", "outcome": "ok" }], "no_writes": true },
+				{ "kind": "contains", "all": ["Dana"] },
+				{ "kind": "regex", "pattern": "4,?800" }
+			]
+		},
+		{
+			"id": "reads.awaiting-reply",
+			"category": "reads",
+			"fixture": "crm",
+			"message": "Is anyone waiting on a reply from me?",
+			"expect": "Sam Okafor asked about a pricing call after Spring launch.",
+			"graders": [
+				{ "kind": "tool_calls", "any_of": [["list_conversations", "get_campaign_replies", "get_contact_timeline"]], "no_writes": true },
+				{ "kind": "contains", "all": ["Sam"] }
+			]
+		},
+		{
+			"id": "reads.automation-enrolled",
+			"category": "reads",
+			"fixture": "crm",
+			"message": "Who is currently in the Welcome series automation?",
+			"expect": "Priya Natarajan is the one active enrollment.",
+			"graders": [
+				{ "kind": "tool_calls", "any_of": [["list_automation_enrollments", "get_automation", "get_automation_performance"]], "no_writes": true },
+				{ "kind": "contains", "all": ["Priya"] }
+			]
+		},
+		{
+			"id": "reads.new-this-week",
+			"category": "reads",
+			"fixture": "crm",
+			"message": "Which contacts were added in the last 7 days?",
+			"expect": "Only Priya Natarajan (added 2 days ago).",
+			"graders": [
+				{ "kind": "tool_calls", "required": [{ "name": "search_contacts" }], "no_writes": true },
+				{ "kind": "contains", "all": ["Priya"], "none": ["Dana Reyes"] }
+			]
+		},
+		{
+			"id": "reads.page-context-contact",
+			"category": "reads",
+			"fixture": "crm",
+			"page": { "route": "/contacts/[id]", "params": { "id": "$ref:contact.sam" } },
+			"message": "Which company is this contact at?",
+			"expect": "Uses the page context (Sam Okafor) and answers Globex Studio.",
+			"graders": [
+				{ "kind": "tool_calls", "any_of": [["get_contact", "get_contact_timeline", "search_contacts"]], "no_writes": true },
+				{ "kind": "contains", "all": ["Globex"] }
+			]
+		}
+	]
+}

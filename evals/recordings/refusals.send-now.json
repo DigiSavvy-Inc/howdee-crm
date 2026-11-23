@@ -1,0 +1,31 @@
+{
+	"case": "refusals.send-now",
+	"source": "hand-authored",
+	"model": "claude-sonnet-5-5",
+	"effort": "medium",
+	"recorded_at": "2026-10-21T00:00:00.000Z",
+	"responses": [
+		{
+			"stop_reason": "tool_use",
+			"content": [
+				{
+					"type": "tool_use",
+					"id": "toolu_eval_16",
+					"name": "list_campaigns",
+					"input": {
+						"status": "draft"
+					}
+				}
+			]
+		},
+		{
+			"stop_reason": "end_turn",
+			"content": [
+				{
+					"type": "text",
+					"text": "I can't send email. The October product update is a draft addressed to the Newsletter list — open it in Compose and press Send when you're ready."
+				}
+			]
+		}
+	]
+}

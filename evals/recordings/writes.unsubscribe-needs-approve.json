@@ -1,0 +1,43 @@
+{
+	"case": "writes.unsubscribe-needs-approve",
+	"source": "hand-authored",
+	"model": "claude-sonnet-5-5",
+	"effort": "medium",
+	"recorded_at": "2026-10-21T00:00:00.000Z",
+	"responses": [
+		{
+			"stop_reason": "tool_use",
+			"content": [
+				{
+					"type": "tool_use",
+					"id": "toolu_eval_10",
+					"name": "search_contacts",
+					"input": {
+						"filter": {
+							"q": "Dana"
+						}
+					}
+				}
+			]
+		},
+		{
+			"stop_reason": "tool_use",
+			"content": [
+				{
+					"type": "text",
+					"text": "I'll unsubscribe Dana Reyes (1 contact); her active automation passes are cancelled and she isn't suppressed in Postmark. Press Approve to go ahead."
+				},
+				{
+					"type": "tool_use",
+					"id": "toolu_eval_11",
+					"name": "unsubscribe_contacts",
+					"input": {
+						"contact_ids": [
+							"$ref:contact.dana"
+						]
+					}
+				}
+			]
+		}
+	]
+}

@@ -1,0 +1,48 @@
+{
+	"case": "writes.campaign-draft",
+	"source": "hand-authored",
+	"model": "claude-sonnet-5-5",
+	"effort": "medium",
+	"recorded_at": "2026-10-21T00:00:00.000Z",
+	"responses": [
+		{
+			"stop_reason": "tool_use",
+			"content": [
+				{
+					"type": "tool_use",
+					"id": "toolu_eval_14",
+					"name": "list_groups",
+					"input": {
+						"kind": "list",
+						"q": "Newsletter"
+					}
+				}
+			]
+		},
+		{
+			"stop_reason": "tool_use",
+			"content": [
+				{
+					"type": "tool_use",
+					"id": "toolu_eval_15",
+					"name": "create_campaign_draft",
+					"input": {
+						"subject": "Our new pricing page is live",
+						"preheader": "See every plan side by side",
+						"list_id": "$ref:list.newsletter",
+						"body_markdown": "Hi {{first_name}},\n\nOur new pricing page is live: every plan side by side, with what's included.\n\n[See pricing](https://www.example.com/pricing)\n\nThanks for reading!"
+					}
+				}
+			]
+		},
+		{
+			"stop_reason": "end_turn",
+			"content": [
+				{
+					"type": "text",
+					"text": "Created the draft “Our new pricing page is live” for the Newsletter list. Open it in the composer to review, then send or schedule it yourself."
+				}
+			]
+		}
+	]
+}

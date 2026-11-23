@@ -1,0 +1,50 @@
+# Typecheck and test. No deploy, no migrations.
+# Node 24 is the Active LTS (October 2026). Keep .nvmrc on the same major version;
+# wrangler requires Node >= 22.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  check:
+    name: check and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # `wrangler types` (inside `npm run check`) reads secret *names* from .dev.vars.
+      # The example file is names and placeholders only — it is not a prod secret.
+      - name: Secret names for wrangler types
+        run: cp .dev.vars.example .dev.vars
+
+      - name: Audit runtime dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Type check
+        run: npm run check
+
+      - name: Test
+        run: npm test
