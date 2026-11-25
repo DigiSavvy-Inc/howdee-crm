@@ -11,6 +11,7 @@ import { accountsToLookAt } from '$lib/server/ai/account-brief';
 import { canSeeBilling } from '$lib/server/integrations/zoho';
 import { authBounces, domainAuthAlert } from '$lib/server/domain-auth';
 import { activeAlerts, weeklyDigest } from '$lib/server/deliverability-alerts';
+import { preflightHolds } from '$lib/server/preflight';
 import { BAND_MOVE_DAYS, scoresOverview } from '$lib/server/scoring/reports';
 import { localRequiredAttention } from '$lib/server/setup-checks';
 import { autoEnroll, enrollContactsInAutomation, listActiveAutomations } from '$lib/server/automations';
@@ -105,6 +106,8 @@ export const load: PageServerLoad = async (event) => {
 		stuck,
 		domainAlert,
 		authBounces: authBounceRows.length,
+		// #479: scheduled sends held by their pre-send checks (banner).
+		preflightHolds: await preflightHolds(db),
 		// #170: companies with hours in 90d but none in 30d → their contacts on /contacts.
 		goingQuiet,
 		goingQuietHref: `/contacts?cm=${encodeURIComponent(GOING_QUIET_FILTER)}`,

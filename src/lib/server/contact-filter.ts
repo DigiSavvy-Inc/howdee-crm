@@ -11,6 +11,7 @@ import { metricClause } from './company-metrics';
 import { formSubmittedClause } from './form-reads';
 import { parseFormFilter, type FormFilter } from './contacts-query';
 import { activeContactSql } from './active-audience';
+import { containsSql } from './sql-match';
 
 // pending = double opt-in not confirmed yet (#510). #705: a group's members are always the active
 // audience (active-audience.ts), so 'all' = subscribed or pending and there is no 'unsubscribed' —
@@ -137,11 +138,6 @@ export function filterParams(f: MemberFilter): Record<string, string> {
 	return p;
 }
 
-/** `%term%` with LIKE wildcards in the user's text escaped (paired with ESCAPE '\'). */
-function like(term: string): string {
-	return `%${term.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
-}
-
 const ORDER_EXPR: Record<SortKey, string> = {
 	added: 'lm.added_at',
 	email: 'c.email',
@@ -164,22 +160,25 @@ export function memberQuery(
 	const params: (string | number)[] = [listId];
 
 	if (f.q) {
-		clauses.push(
-			`(c.email LIKE ? ESCAPE '\\' OR COALESCE(c.name, '') LIKE ? ESCAPE '\\'
-			  OR COALESCE(c.first_name, '') LIKE ? ESCAPE '\\'
-			  OR COALESCE(c.last_name, '') LIKE ? ESCAPE '\\'
-			  OR COALESCE(c.company, '') LIKE ? ESCAPE '\\'
-			  OR COALESCE((SELECT co.name FROM companies co WHERE co.id = c.company_id), '') LIKE ? ESCAPE '\\')`
-		);
 		// #583: the search also matches the company text and the linked company's name.
-		const term = like(f.q);
-		params.push(term, term, term, term, term, term);
+		// #485: instr, not LIKE (D1 caps LIKE patterns at 50 bytes).
+		const fields = [
+			'c.email',
+			"COALESCE(c.name, '')",
+			"COALESCE(c.first_name, '')",
+			"COALESCE(c.last_name, '')",
+			"COALESCE(c.company, '')",
+			"COALESCE((SELECT co.name FROM companies co WHERE co.id = c.company_id), '')"
+		];
+		clauses.push(`(${fields.map((x) => containsSql(x)).join(' OR ')})`);
+		const q = f.q;
+		params.push(...fields.map(() => q));
 	}
 	if (f.status === 'subscribed') clauses.push('c.subscribed = 1');
 	if (f.status === 'pending') clauses.push('c.subscribed = 0 AND c.confirm_pending = 1');
 	if (f.source) {
-		clauses.push(`COALESCE(c.source, '') LIKE ? ESCAPE '\\'`);
-		params.push(like(f.source));
+		clauses.push(containsSql("COALESCE(c.source, '')"));
+		params.push(f.source);
 	}
 	if (f.addedFrom) {
 		clauses.push('date(lm.added_at) >= ?');

@@ -5,8 +5,12 @@
 // the reply as the operator writing to himself. The contact's own address is never the
 // From (that would be spoofing and fail DMARC) — it's the Reply-To.
 
-import { sendBatch, type PostmarkMessage, type PostmarkResult } from './postmark';
+import { asMailProvider, fromPostmarkMessage, toMailResult, type MailProvider, type MailResult, type PostmarkMessage } from './mail';
+
+/** A Postmark-shaped batch sender — the test seam (and how forwards were always sent). */
+export type LegacySend = (token: string, messages: PostmarkMessage[]) => Promise<MailResult[]>;
 import { stripReplyPrefixes } from './conversations';
+import { addressOf } from './conversation-reply';
 import { stripTrailingQuoteIntro } from '$lib/email-text';
 import { DEFAULT_APP_NAME } from '$lib/branding';
 
@@ -43,9 +47,22 @@ type SenderEnv = {
 	POSTMARK_FROM?: string;
 };
 
-/** Lower-cased domain of a bare email address, or '' when it isn't one. */
+/**
+ * #731: `env` with POSTMARK_FROM's stand-in filled in: the var when it is set (unchanged), else
+ * Settings → General → Default From. Every function below reads the sending address through
+ * POSTMARK_FROM, so an install that set only the Default From forwards replies (and its loop
+ * guard) the same way as one with the var.
+ */
+export function withSenderStandIn<T extends SenderEnv>(env: T, defaultFrom: string | null | undefined): T {
+	const own = String(env.POSTMARK_FROM ?? '').trim();
+	if (own) return env;
+	return { ...env, POSTMARK_FROM: String(defaultFrom ?? '').trim() };
+}
+
+/** Lower-cased domain of an email address, or '' when it isn't one. #731: a From-style value
+ *  (`Brand <a@example.com>`) counts as its address. */
 export function emailDomain(address: string | null | undefined): string {
-	const a = String(address ?? '').trim();
+	const a = addressOf(String(address ?? ''));
 	if (!EMAIL_RE.test(a)) return '';
 	return a.slice(a.lastIndexOf('@') + 1).toLowerCase();
 }
@@ -74,7 +91,7 @@ export function forwardSenderAddress(env: SenderEnv): string {
 	const domain = sendingDomain(env);
 	if (!domain) return '';
 	for (const v of [env.INBOUND_FORWARD_FROM, env.REVIEW_FROM, env.POSTMARK_FROM]) {
-		const a = String(v ?? '').trim();
+		const a = addressOf(String(v ?? '')); // #731: `Brand <a@x>` → a@x (the forward adds its own name)
 		if (isOnSendingDomain(a, domain)) return a;
 	}
 	return '';
@@ -85,7 +102,7 @@ export function forwardSenderAddress(env: SenderEnv): string {
  * definition), or '' when it isn't a usable address.
  */
 export function forwardFallbackAddress(env: SenderEnv): string {
-	const a = String(env.POSTMARK_FROM ?? '').trim();
+	const a = addressOf(String(env.POSTMARK_FROM ?? ''));
 	return isOnSendingDomain(a, sendingDomain(env)) ? a : '';
 }
 
@@ -175,13 +192,14 @@ export function buildReplyForward(f: ForwardInput): PostmarkMessage {
  * so a retry can never go out from an unaligned domain.
  */
 export async function sendReplyForward(
-	token: string,
+	/** #700: the sending provider, or a Postmark server token (a Postmark adapter for it). */
+	mail: string | MailProvider,
 	message: PostmarkMessage,
 	senderAddress: string,
 	fallbackAddress: string,
-	send: typeof sendBatch = sendBatch
+	send?: LegacySend
 ): Promise<{ ok: boolean; fallbackUsed: boolean; error: string | null; messageId: string | null }> {
-	const first = await sendOne(send, token, message);
+	const first = await sendOne(send, mail, message);
 	if (first.ok) return { ok: true, fallbackUsed: false, error: null, messageId: first.messageId };
 	const fallback = fallbackAddress.trim();
 	if (!fallback || fallback.toLowerCase() === senderAddress.toLowerCase()) {
@@ -201,17 +219,23 @@ export async function sendReplyForward(
 	const From = /<[^<>]*>$/.test(message.From)
 		? message.From.replace(/<[^<>]*>$/, `<${fallback}>`)
 		: fallback;
-	const second = await sendOne(send, token, { ...message, From });
+	const second = await sendOne(send, mail, { ...message, From });
 	return { ok: second.ok, fallbackUsed: true, error: second.error, messageId: second.messageId };
 }
 
 async function sendOne(
-	send: typeof sendBatch,
-	token: string,
+	send: LegacySend | undefined,
+	mail: string | MailProvider,
 	message: PostmarkMessage
 ): Promise<{ ok: boolean; error: string | null; messageId: string | null }> {
 	try {
-		const [r] = (await send(token, [message])) as PostmarkResult[];
+		let r: MailResult | undefined;
+		if (send) [r] = await send(typeof mail === 'string' ? mail : '', [message]);
+		else {
+			const provider = typeof mail === 'string' ? asMailProvider({ token: mail, stream: message.MessageStream, txStream: message.MessageStream }) : mail;
+			if (!provider) return { ok: false, error: 'no sending provider is configured', messageId: null };
+			r = toMailResult((await provider.sendBatch([fromPostmarkMessage(message, provider.streams)]))[0]);
+		}
 		// #585: Postmark's MessageID — the forward's Message-ID is `<MessageID@mtasv.net>`.
 		if (r && r.ErrorCode === 0) return { ok: true, error: null, messageId: r.MessageID ?? null };
 		return { ok: false, error: r ? `${r.ErrorCode}: ${r.Message}` : 'no result', messageId: null };

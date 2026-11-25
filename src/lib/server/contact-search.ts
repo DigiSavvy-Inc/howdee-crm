@@ -1,12 +1,11 @@
-// Quick search (#91) for the /contacts table. Mirrors the LIKE-escape convention from
-// src/routes/api/contacts/search/+server.ts: escape \, %, _ in user input so they can't
-// act as SQL LIKE wildcards, then match a %substring% against email/name fields.
+// Quick search (#91) for the /contacts table: a case-insensitive substring of the email /
+// name fields. #485: matched with instr, not LIKE — D1 refuses LIKE patterns over 50 bytes —
+// so the raw text is bound and `%` / `_` in it are literal.
+import { containsSql } from './sql-match';
+
 export function buildContactSearch(q: string): { where: string; binds: string[] } {
 	const trimmed = q.trim();
 	if (!trimmed) return { where: '', binds: [] };
-
-	const esc = trimmed.replace(/[\\%_]/g, '\\$&');
-	const like = `%${esc}%`;
 
 	const fields = [
 		'email',
@@ -23,8 +22,8 @@ export function buildContactSearch(q: string): { where: string; binds: string[] 
 		"(SELECT co.name FROM companies co WHERE co.id = company_id)"
 	];
 
-	const where = `WHERE (${fields.map((f) => `${f} LIKE ? ESCAPE '\\'`).join(' OR ')})`;
-	const binds = fields.map(() => like);
+	const where = `WHERE (${fields.map((f) => containsSql(f)).join(' OR ')})`;
+	const binds = fields.map(() => trimmed);
 
 	return { where, binds };
 }

@@ -351,6 +351,35 @@ describe('runDueJobs (#303)', () => {
 		expect(calls[0].system).toMatch(/running unattended/);
 	});
 
+	it('#731: with sending off an email job is left untouched and still due; a webhook-only job runs', async () => {
+		const mail = await makeJob({ name: 'Mailed' });
+		const hookOnly = await makeJob({ name: 'Hook only' });
+		await db.prepare('UPDATE ai_jobs SET email_admins = ? WHERE id = ?').bind(JSON.stringify([admin.id]), mail).run();
+		await setDue(mail, '2026-10-19 14:00:00');
+		await setDue(hookOnly, '2026-10-19 14:30:00');
+		const before = await getJob(db, mail);
+		const { p, calls } = reportProvider();
+		const hook = hookFetch();
+		const emailSender = vi.fn(async () => ({ status: 'sent' as const, sent: 1, error: null }));
+		const now = new Date('2026-10-19T15:00:00Z');
+
+		const res = await runDueJobs(db, ENV, { now, provider: p, fetch: hook.f, emailSender: emailSender as any, emailOff: true });
+		expect(res).toMatchObject({ due: 1, ran: 1, ok: 1 });
+		expect(calls).toHaveLength(1);
+		expect(JSON.parse(hook.bodies[0]).job.name).toBe('Hook only');
+		expect(emailSender).not.toHaveBeenCalled();
+		const after = await getJob(db, mail);
+		expect(after!.next_run_at).toBe('2026-10-19 14:00:00');
+		expect(after!.last_run_at).toBe(before!.last_run_at);
+		const runs = await db.prepare('SELECT job_id FROM ai_job_runs').all<{ job_id: number }>();
+		expect(runs.results.map((r) => r.job_id)).toEqual([hookOnly]);
+
+		// Once sending is configured again the email job runs.
+		const later = await runDueJobs(db, ENV, { now, provider: p, fetch: hook.f, emailSender: emailSender as any });
+		expect(later).toMatchObject({ due: 1, ran: 1 });
+		expect(emailSender).toHaveBeenCalledTimes(1);
+	});
+
 	it('two overlapping ticks run a due job once', async () => {
 		const a = await makeJob({ name: 'Once' });
 		await setDue(a, '2026-10-19 14:00:00');
@@ -487,7 +516,7 @@ describe('Settings → Assistant → Jobs (#303)', () => {
 		const local: any = await actions.save(pageEvent('save', { user: admin, form: { ...FORM, webhook_url: 'https://localhost/x' } }));
 		expect(local.status).toBe(400);
 
-		const loc = await expectRedirect(actions.save(pageEvent('save', { user: admin, form: { ...FORM, webhook_secret: 'whsec-abcd1234' } })) as Promise<unknown>);
+		const loc = await expectRedirect(actions.save(pageEvent('save', { user: admin, form: { ...FORM, webhook_secret: 'whsec-abcd1234' } })) as Promise<unknown>); // gitleaks:allow
 		const id = Number(new URL(loc, 'https://app.test').searchParams.get('job'));
 		const row = (await getJob(db, id))!;
 		expect(row.webhook_secret).toMatch(/^v1\./);

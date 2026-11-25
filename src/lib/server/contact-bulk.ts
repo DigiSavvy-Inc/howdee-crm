@@ -17,7 +17,7 @@ import { deleteContactsByIds } from './contacts';
 import { archiveContacts, restoreContacts } from './contact-archive';
 import { contactsWhere, parseContactsFilter, resolveContactsFilter } from './contacts-query';
 import { snapshot } from './snapshot';
-import { isHardSuppression, suppressionsByEmail, suppressionStreams, suppressMany } from './postmark';
+import { asMailProvider, isHardSuppression, type MailSource } from './mail';
 import { subscriptionChanged } from './subscription-trigger';
 import type { SubscriptionSource } from '$lib/subscription-trigger';
 import { exclusionTagName } from '$lib/segment-exclusion';
@@ -447,6 +447,8 @@ export async function bulkAdjustScore(
  * resubscribe guard also reads (#285).
  */
 export type PostmarkCreds = { token?: string; stream?: string; txStream?: string };
+/** #700: the active sending provider, or a Postmark credential bundle (as callers always passed). */
+export type SuppressionSource = MailSource | PostmarkCreds;
 
 /** `unsubscribes.reason` for an operator's bulk unsubscribe (#279). */
 export const BULK_UNSUB_REASON = 'operator (bulk)';
@@ -509,7 +511,7 @@ export async function unsubscribeIds(
 export async function bulkUnsubscribe(
 	db: D1Database,
 	sel: Selection & { ok: true },
-	opts: { suppress?: boolean; postmark?: PostmarkCreds; reason?: string; detail?: string | null; source?: SubscriptionSource; triggers?: boolean } = {}
+	opts: { suppress?: boolean; postmark?: SuppressionSource; reason?: string; detail?: string | null; source?: SubscriptionSource; triggers?: boolean } = {}
 ): Promise<BulkOutcome> {
 	const { changed, cancelled, emails, changedIds } = await unsubscribeIds(
 		db,
@@ -523,11 +525,11 @@ export async function bulkUnsubscribe(
 	const already = sel.ids.length - changed;
 	let note = '';
 	if (opts.suppress) {
-		const { token, stream } = opts.postmark ?? {};
-		if (!token || !stream) note = ' · Postmark not configured, nothing suppressed';
+		const mail = asMailProvider(opts.postmark);
+		if (!mail?.suppressions || !mail.streams.broadcast) note = ' · Postmark not configured, nothing suppressed';
 		else {
-			const { suppressed, failed } = await suppressMany(token, stream, emails);
-			note = ` · ${fmt(suppressed)} suppressed in Postmark${failed ? ` · ${fmt(failed)} Postmark suppression${failed === 1 ? '' : 's'} failed` : ''}`;
+			const { suppressed, failed } = await mail.suppressions.addMany(emails, 'unsubscribe');
+			note = ` · ${fmt(suppressed)} suppressed in ${mail.label}${failed ? ` · ${fmt(failed)} ${mail.label} suppression${failed === 1 ? '' : 's'} failed` : ''}`;
 		}
 	}
 	return {
@@ -550,15 +552,15 @@ export async function bulkUnsubscribe(
 export async function bulkResubscribe(
 	db: D1Database,
 	sel: Selection & { ok: true },
-	opts: { postmark?: PostmarkCreds; source?: SubscriptionSource; triggers?: boolean } = {}
+	opts: { postmark?: SuppressionSource; source?: SubscriptionSource; triggers?: boolean } = {}
 ): Promise<BulkOutcome> {
 	let ids = sel.ids;
 	let blocked = 0;
 	let note = '';
-	const { token, stream, txStream } = opts.postmark ?? {};
-	if (!token) note = ' · Postmark not configured, suppressions not checked';
+	const mail = asMailProvider(opts.postmark);
+	if (!mail?.suppressions) note = ' · Postmark not configured, suppressions not checked';
 	else {
-		const { map, errors, read } = await suppressionsByEmail(token, suppressionStreams(stream, txStream));
+		const { map, errors, read } = await mail.suppressions.byEmail();
 		if (!read) note = ' · Postmark unreachable, suppressions not checked';
 		else {
 			if (errors.length) note = ' · some Postmark streams unreachable, not all suppressions checked';
@@ -650,8 +652,8 @@ export type BulkOp =
 	| { action: 'delete'; confirm?: string | null }
 	| { action: 'archive' }
 	| { action: 'restore' }
-	| { action: 'unsubscribe'; suppress?: boolean; postmark?: PostmarkCreds; source?: SubscriptionSource }
-	| { action: 'resubscribe'; postmark?: PostmarkCreds; source?: SubscriptionSource }
+	| { action: 'unsubscribe'; suppress?: boolean; postmark?: SuppressionSource; source?: SubscriptionSource }
+	| { action: 'resubscribe'; postmark?: SuppressionSource; source?: SubscriptionSource }
 	| { action: 'set_tier'; tier: TierName | null; days?: number | null; source: string }
 	| { action: 'adjust_score'; scoreId: number; points: number; expires_days: number | null; note: string; by: string };
 
@@ -721,7 +723,7 @@ export async function runBulkForm(
 	db: D1Database,
 	data: FormData,
 	action: BulkFormAction,
-	opts: { query: () => IdQuery | Promise<IdQuery>; currentGroup?: number; postmark?: PostmarkCreds; actor?: string }
+	opts: { query: () => IdQuery | Promise<IdQuery>; currentGroup?: number; postmark?: SuppressionSource; actor?: string }
 ): Promise<BulkOutcome> {
 	const sel = await resolveSelection(db, wantsAll(data) ? { query: await opts.query() } : { ids: formIds(data) });
 	if (!sel.ok) return { ok: false, status: 400, error: sel.error };

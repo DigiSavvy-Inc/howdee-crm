@@ -1,0 +1,90 @@
+{
+	// Written from wrangler.example.jsonc (#730). `npm run deploy` creates the D1 database and the R2
+	// bucket named below when they are missing, writes the database id here, and fills in
+	// PUBLIC_BASE_URL with the Worker's workers.dev address. Edit the names before the first deploy
+	// if you want others. This file holds no secrets.
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	// Your Worker's name. Keep WORKER_NAME (below) equal to it, and the heartbeat's service binding
+	// too if you deploy the optional heartbeat Worker.
+	"name": "howdee-crm",
+	"compatibility_date": "2026-06-04",
+	"compatibility_flags": [
+		"nodejs_als"
+	],
+	// The SvelteKit build output. `npm run build` wraps it (scripts/wrap-worker.mjs) so it also has
+	// a `scheduled` handler: the Cron Trigger below runs the automation tick inside this Worker, so
+	// no heartbeat Worker or CRON_KEY is needed (#729). Drop `triggers` to use heartbeat/ instead.
+	"main": ".svelte-kit/cloudflare/_worker.js",
+	"triggers": {
+		// The app's own clock: one tick every minute (automations, scheduled sends, housekeeping).
+		// The engine is idempotent, so cadence only affects latency.
+		"crons": ["* * * * *"]
+	},
+	"assets": {
+		"binding": "ASSETS",
+		"directory": ".svelte-kit/cloudflare"
+	},
+	"workers_dev": true,
+	"preview_urls": false,
+	// No "routes": add them only to serve the newsletter archive on another host of yours
+	// (e.g. example.com/newsletter and example.com/newsletter/*), and list those hosts in
+	// ARCHIVE_ROUTE_HOSTS.
+	"observability": {
+		"enabled": true
+	},
+	"d1_databases": [
+		{
+			// `npm run deploy` creates this database and writes its database_id here.
+			"binding": "DB",
+			"database_name": "howdee-crm",
+			"migrations_dir": "migrations"
+		}
+	],
+	"r2_buckets": [
+		{
+			// Uploaded media, logos, backups and mail bodies. `npm run deploy`
+			// creates the bucket when it is missing. Served via /img/[key].
+			"binding": "MEDIA",
+			"bucket_name": "howdee-crm-media"
+		}
+	],
+	"vars": {
+		// Non-secret config. Secrets are listed in .dev.vars.reference; set them in .dev.vars
+		// locally and with `wrangler secret put <NAME>` in production.
+
+		// Optional. The default From address; its domain must be verified in Postmark.
+		// Empty = Settings → General → Default From (the setup wizard asks for it).
+		"POSTMARK_FROM": "",
+		// Optional. Postmark broadcast message stream used for campaigns and automations.
+		// Empty = Settings → Sending, else "broadcast".
+		"POSTMARK_STREAM": "broadcast",
+		// Optional. Postmark transactional stream used for 1:1 sends, replies and operator mail.
+		// Empty = Settings → Sending, else "outbound".
+		"POSTMARK_STREAM_TX": "outbound",
+		// Optional. Public origin of the app, no trailing slash. Settings → Domain overrides it.
+		// Empty = the address the first admin was created on at /setup.
+		"PUBLIC_BASE_URL": "",
+		// Optional. An address on your Postmark inbound domain; when set, sends get a
+		// per-recipient Reply-To there so replies reach /api/inbound. Empty = no reply capture.
+		"POSTMARK_INBOUND_ADDRESS": "",
+		// Optional. Where captured replies are forwarded so they also reach your inbox.
+		// Empty = replies are stored, not forwarded.
+		"INBOUND_FORWARD_TO": "",
+		// Optional. From address for scheduled assistant job emails (on the POSTMARK_FROM
+		// domain). Empty = Settings → Default From.
+		"REVIEW_FROM": "",
+		// Optional. Extra recipient for assistant job emails. Empty = Settings → Default From.
+		"REVIEW_TO": "",
+		// Optional. List a contact joins when /api/ingest or /api/luma names none.
+		// Empty = such requests are rejected with "No list configured".
+		"DEFAULT_LIST_NAME": "",
+		// Optional. Your Cloudflare account id, for Settings → Domain "Attach to this Worker".
+		// Empty = attaching reports "Not configured".
+		"CF_ACCOUNT_ID": "",
+		// Optional. This Worker's name ("name" above), for Settings → Domain "Attach to this Worker".
+		"WORKER_NAME": "howdee-crm",
+		// Optional. Comma-separated hosts whose "routes" send /newsletter* here (newsletter
+		// archive public host). Keep in step with "routes". Empty = none.
+		"ARCHIVE_ROUTE_HOSTS": ""
+	}
+}

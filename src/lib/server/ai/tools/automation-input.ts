@@ -18,6 +18,7 @@ import { specHasLanes, walkSpec, type ActionSpec, type AutomationSpec, type Bran
 import type { ConditionRule } from '$lib/condition-rules';
 import { blocksArg, bodyOf } from './draft-body';
 import { ToolInputError } from './types';
+import { containsSql } from '../../sql-match';
 
 const WAIT_MAX_SECONDS = 365 * 86400;
 const SUGGEST_MAX = 5;
@@ -31,7 +32,8 @@ type Lookup = {
 	like: (db: D1Database, name: string) => Promise<Named[]>;
 };
 
-const likeOf = (s: string) => `%${s.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+// #485: "names like this" is instr, not LIKE (D1 caps LIKE patterns at 50 bytes).
+const NAME_CONTAINS = containsSql('name');
 
 function groups(kinds: string[], what: string): Lookup {
 	const inKinds = kinds.map(() => '?').join(', ');
@@ -43,8 +45,8 @@ function groups(kinds: string[], what: string): Lookup {
 		like: async (db, name) =>
 			(
 				await db
-					.prepare(`SELECT id, name, kind FROM lists WHERE name LIKE ? ESCAPE '\\' AND kind IN (${inKinds}) ORDER BY name LIMIT ${SUGGEST_MAX}`)
-					.bind(likeOf(name), ...kinds)
+					.prepare(`SELECT id, name, kind FROM lists WHERE ${NAME_CONTAINS} AND kind IN (${inKinds}) ORDER BY name LIMIT ${SUGGEST_MAX}`)
+					.bind(name, ...kinds)
 					.all<Named>()
 			).results
 	};
@@ -58,7 +60,7 @@ function table(sql: { table: string; what: string; extraName?: string }): Lookup
 		byId: (db, id) => db.prepare(`SELECT id, name FROM ${sql.table} WHERE id = ?`).bind(id).first<Named>(),
 		byName: async (db, name) => (await db.prepare(`SELECT id, name FROM ${sql.table} WHERE ${match} ORDER BY id`).bind(...binds(name)).all<Named>()).results,
 		like: async (db, name) =>
-			(await db.prepare(`SELECT id, name FROM ${sql.table} WHERE name LIKE ? ESCAPE '\\' ORDER BY name LIMIT ${SUGGEST_MAX}`).bind(likeOf(name)).all<Named>()).results
+			(await db.prepare(`SELECT id, name FROM ${sql.table} WHERE ${NAME_CONTAINS} ORDER BY name LIMIT ${SUGGEST_MAX}`).bind(name).all<Named>()).results
 	};
 }
 

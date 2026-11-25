@@ -23,7 +23,7 @@ import { addTag } from './automations';
 import { applyContactMeta } from './contact-write';
 import { cleanRatingInputs, insertRatings, type RatingInput } from './contact-ratings';
 import { subscriptionChanged } from './subscription-trigger';
-import { isHardSuppression, suppressionsByEmail, suppressionStreams, unsuppress } from './postmark';
+import { getMailProvider, isHardSuppression, mailSetup } from './mail';
 import { RESUB_REFUSED } from './unsubscribe-page';
 import { fireFormTriggersForSubmission } from './form-trigger';
 import { b64urlEncode } from './token';
@@ -217,7 +217,8 @@ async function sendConfirmEmail(
 	token: string,
 	opts: DoiOpts
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-	if (!env.POSTMARK_TOKEN) return { ok: false, error: 'POSTMARK_TOKEN is not set.' };
+	const { provider: mail, creds } = await mailSetup(db, env);
+	if (!mail) return { ok: false, error: creds.postmark.tokenError ?? 'POSTMARK_TOKEN is not set.' };
 	const cfg = await getDoiConfig(db);
 	const baseUrl = opts.baseUrl ?? (await publicBaseUrl(db, env));
 	const url = `${baseUrl}/confirm/${encodeURIComponent(token)}`;
@@ -243,7 +244,7 @@ async function sendConfirmEmail(
 	let result;
 	try {
 		result = await deliver(db, {
-			token: env.POSTMARK_TOKEN,
+			provider: mail,
 			secret: env.SESSION_SECRET || 'unused',
 			baseUrl,
 			campaignId,
@@ -252,7 +253,8 @@ async function sendConfirmEmail(
 			htmlTemplate: msg.html,
 			textTemplate: msg.text,
 			from,
-			stream: env.POSTMARK_STREAM_TX || 'outbound',
+			stream: mail.streams.transactional,
+			streamKind: 'transactional',
 			trackOpens: false,
 			trackLinks: 'None',
 			unsubscribe: false
@@ -508,9 +510,10 @@ export async function confirmSubscription(
 	const intent = parseIntent(row.intent);
 
 	let manualStream: string | null = null;
-	if (intent.resubscribe && env.POSTMARK_TOKEN) {
+	const mail = intent.resubscribe ? await getMailProvider(db, env) : null;
+	if (intent.resubscribe && mail?.suppressions) {
 		try {
-			const { map } = await suppressionsByEmail(env.POSTMARK_TOKEN, suppressionStreams(env.POSTMARK_STREAM, env.POSTMARK_STREAM_TX));
+			const { map } = await mail.suppressions.byEmail();
 			const s = map.get(contact.email.toLowerCase());
 			if (s && isHardSuppression(s.reason)) return { ok: false, refused: true, error: RESUB_REFUSED, contactId: contact.id, email: contact.email };
 			if (s) manualStream = s.stream;
@@ -550,9 +553,9 @@ export async function confirmSubscription(
 			console.error('double opt-in form_submitted trigger failed:', e);
 		}
 	}
-	if (manualStream && env.POSTMARK_TOKEN) {
+	if (manualStream && mail?.suppressions) {
 		try {
-			await unsuppress(env.POSTMARK_TOKEN, manualStream, contact.email);
+			await mail.suppressions.remove(contact.email, manualStream);
 		} catch {
 			/* best-effort */
 		}
@@ -612,7 +615,8 @@ export async function sendDoiTest(
 	opts: { deliver?: Deliver; baseUrl?: string } = {}
 ): Promise<{ ok: true } | { ok: false; error: string }> {
 	if (!isEmail(to)) return { ok: false, error: 'Your user record has no email address.' };
-	if (!env.POSTMARK_TOKEN) return { ok: false, error: 'POSTMARK_TOKEN is not set.' };
+	const { provider: mail, creds } = await mailSetup(db, env);
+	if (!mail) return { ok: false, error: creds.postmark.tokenError ?? 'POSTMARK_TOKEN is not set.' };
 	const cfg = await getDoiConfig(db);
 	const baseUrl = opts.baseUrl ?? (await publicBaseUrl(db, env));
 	const msg = renderConfirmEmail(cfg, `${baseUrl}/confirm/preview`);
@@ -632,7 +636,7 @@ export async function sendDoiTest(
 		.first<{ id: number; email: string; name: string | null; first_name: string | null; last_name: string | null }>();
 	try {
 		const r = await (opts.deliver ?? sendCampaignEmail)(db, {
-			token: env.POSTMARK_TOKEN,
+			provider: mail,
 			secret: env.SESSION_SECRET || 'unused',
 			baseUrl,
 			campaignId: campaign!.id,
@@ -641,7 +645,8 @@ export async function sendDoiTest(
 			htmlTemplate: msg.html,
 			textTemplate: msg.text,
 			from,
-			stream: env.POSTMARK_STREAM_TX || 'outbound',
+			stream: mail.streams.transactional,
+			streamKind: 'transactional',
 			trackOpens: false,
 			trackLinks: 'None',
 			unsubscribe: false

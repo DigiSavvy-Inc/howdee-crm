@@ -1,6 +1,7 @@
 import { error, fail, redirect, type Actions, type RequestEvent } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { getDB, env } from '$lib/server/db';
+import { getDB, env, FINISH_SETUP_SENDING, mailToken, sendingUnconfigured } from '$lib/server/db';
+import { mailSetup } from '$lib/server/mail';
 import { MERGE_TAGS } from '$lib/server/email';
 import { enrollContactsInAutomation, restartEnrollment } from '$lib/server/automations';
 import { enrollSkipText } from '$lib/server/contact-bulk';
@@ -658,7 +659,8 @@ export const actions: Actions = {
 				type,
 				parent_step_id: data.get('parent_step_id') ? Number(data.get('parent_step_id')) : null,
 				branch_label: String(data.get('branch_label')) === 'no' ? 'no' : 'yes',
-				from_email: event.platform?.env?.POSTMARK_FROM ?? '',
+				// #731: Settings default From first; POSTMARK_FROM is optional now.
+				from_email: (await getSettings(db)).default_from || (event.platform?.env?.POSTMARK_FROM ?? ''),
 				action: type === 'action' ? actionFromForm(data) : undefined
 			},
 			actorOf(event)
@@ -835,9 +837,17 @@ export const actions: Actions = {
 		if (!fromAllowed(from, settings.approved_senders)) {
 			return fail(400, { testError: `From “${from}” isn't an approved Postmark sender (Settings → Approved senders).`, testStepId: stepId });
 		}
+		const { provider: mail, creds: mailCreds } = await mailSetup(db, event.platform?.env);
+		if (sendingUnconfigured(mail, mailCreds)) return fail(409, { testError: FINISH_SETUP_SENDING, testStepId: stepId });
 		const sent = await sendTestEmail(
 			db,
-			{ token: env(event, 'POSTMARK_TOKEN'), stream: env(event, 'POSTMARK_STREAM'), secret: env(event, 'SESSION_SECRET'), baseUrl: await publicBaseUrlFor(event) },
+			{
+				provider: mail,
+				token: mailToken(event, mailCreds),
+				stream: mailCreds.postmark.stream || env(event, 'POSTMARK_STREAM'),
+				secret: env(event, 'SESSION_SECRET'),
+				baseUrl: await publicBaseUrlFor(event)
+			},
 			{ from, to, subject, body, preheader }
 		);
 		if (!sent.ok) return fail(400, { testError: sent.error, testStepId: stepId });

@@ -24,7 +24,7 @@
 	);
 	// #240: a draft (?draft=<id>) seeds every field it stored; a failed submit's values win.
 	const draft = untrack(() => data.draft);
-	let subject = $state(form?.values?.subject ?? draft?.subject ?? '');
+	let subject = $state(form?.values?.subject ?? draft?.subject ?? untrack(() => data.initialSubject) ?? '');
 	let from = $state(form?.values?.from ?? (draft?.from || data.defaultFrom));
 	// #250: the visual editor's blocks. A failed submit's posted blocks win, then the
 	// draft's stored blocks; an old markdown body converts here (nothing is saved until
@@ -33,7 +33,8 @@
 		const posted = form?.values?.body_blocks;
 		if (posted) return parseBlocks(posted);
 		if (draft?.body_blocks) return draft.body_blocks;
-		return markdownToBlocks(form?.values?.body_md ?? draft?.body_md ?? '');
+		// #714: a suggestion's draft opening line starts the body (edit it before sending).
+		return markdownToBlocks(form?.values?.body_md ?? draft?.body_md ?? data.initialOpening ?? '');
 	}
 	let bodyBlocks = $state<Block[]>(untrack(initialBlocks));
 
@@ -94,7 +95,7 @@
 	let preheader = $state(form?.values?.preheader ?? draft?.preheader ?? '');
 	// #332: included lists / segments (union) and excluded ones. A failed submit's values win.
 	let includeIds = $state<number[]>(
-		untrack(() => form?.values?.include_ids ?? draft?.include_ids ?? (draft?.list_id ? [draft.list_id] : []))
+		untrack(() => form?.values?.include_ids ?? draft?.include_ids ?? (draft?.list_id ? [draft.list_id] : (data.initialIncludeIds ?? [])))
 	);
 	let excludeIds = $state<number[]>(untrack(() => form?.values?.exclude_ids ?? draft?.exclude_ids ?? []));
 	// #414: the topic this email belongs to — '' automatic (the first included group when it is
@@ -260,18 +261,28 @@
 		fd.set('preheader', preheader);
 		fd.set('body_blocks', JSON.stringify(bodyBlocks));
 		if (templateId) fd.set('template_id', String(templateId));
+		// #479: at schedule time a failing link only warns (checked again when the send fires).
+		if (schedUtcIso) fd.set('schedule_at', schedUtcIso);
 		audienceFields(fd);
 		return fd;
 	}
 	const checkSig = $derived(JSON.stringify([subject, preheader, bodyBlocks, templateId, includeIds, excludeIds, topicChoice]));
 	let ranSig = $state('');
 	// Runs on its own when the send / schedule step changes: a list is picked, or Schedule chosen.
+	// #479: links included, and again ~3 s after the last edit (the panel debounces nothing else).
 	$effect(() => {
 		if (mode !== 'campaign' || !includeIds.length) return;
 		void audienceSig;
 		void sendWhen;
 		void templateId;
-		const t = setTimeout(() => untrack(() => checksPanel?.run(false)), 400);
+		const t = setTimeout(() => untrack(() => checksPanel?.run(true)), 400);
+		return () => clearTimeout(t);
+	});
+	$effect(() => {
+		if (mode !== 'campaign' || !includeIds.length) return;
+		const sig = checkSig;
+		if (!ranSig || sig === ranSig) return;
+		const t = setTimeout(() => untrack(() => checksPanel?.run(true)), 3000);
 		return () => clearTimeout(t);
 	});
 </script>
@@ -360,6 +371,13 @@
 			Direct (1:1) <span class="mode-sub">one person · no unsubscribe</span>
 		</button>
 	</div>
+	{#if data.prefillTags?.length && mode === 'campaign'}
+		<!-- #714: a suggestion for a tag; compose sends to lists and segments. -->
+		<p class="notice" role="status">
+			{#each data.prefillTags as t, i (t.id)}{i ? ', ' : ''}<a href="/lists/{t.id}">{t.name}</a>{/each}
+			{data.prefillTags.length === 1 ? 'is a tag' : 'are tags'}. Pick a list or segment below, or make a segment with the rule “has tag” first.
+		</p>
+	{/if}
 	{#if data.draft}<p class="muted draft-note">Editing draft #{data.draft.id}. Sending or scheduling uses this draft; nothing goes out until you do.</p>{/if}
 
 	<div class="fields">

@@ -1,7 +1,7 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { getDB, env } from '$lib/server/db';
+import { getDB } from '$lib/server/db';
 import { safeEqual } from '$lib/server/auth';
-import { sendBatch } from '$lib/server/postmark';
+import { mailSetup } from '$lib/server/mail';
 import { getSettings, parseEmailList } from '$lib/server/settings';
 import { pickInboundText } from '$lib/server/inbound-text';
 import { markDirty } from '$lib/server/engagement';
@@ -15,8 +15,10 @@ import {
 	buildReplyForward,
 	forwardFallbackAddress,
 	forwardSenderAddress,
-	sendReplyForward
+	sendReplyForward,
+	withSenderStandIn
 } from '$lib/server/reply-forward';
+import { bareAddress } from '$lib/server/conversation-reply';
 import { publicBaseUrl } from '$lib/server/public-url';
 import { getBranding } from '$lib/server/branding';
 import { snapshot } from '$lib/server/snapshot';
@@ -56,7 +58,7 @@ export const POST: RequestHandler = async (event) => {
 		.toLowerCase();
 	if (!fromEmail) return json({ ignored: 'no sender' }, { status: 200 });
 
-	// SEO Snapshot review replies (#130): "approve" / "hold <notes>" from the review's
+	// Snapshot review replies (#130): "approve" / "hold <notes>" from the review's
 	// recipient act on the job and stop here. Runs before the self check (that sender is
 	// usually POSTMARK_FROM). Anything else falls through to the normal reply path.
 	// A reply in a review thread is never a lead reply, so it never tags snapshot:replied (#190).
@@ -86,8 +88,11 @@ export const POST: RequestHandler = async (event) => {
 	);
 	const forwardTo = forwardList.join(',');
 
-	// Ignore our own forwards / operator mail (avoid loops + self-captures).
-	const fromAddr = (event.platform?.env?.POSTMARK_FROM ?? '').toLowerCase();
+	// Ignore our own forwards / operator mail (avoid loops + self-captures). #731: the sending
+	// address is POSTMARK_FROM, else Settings → General → Default From (withSenderStandIn), compared
+	// as a bare address so `Brand <a@example.com>` matches a@example.com.
+	const platformEnv = withSenderStandIn((event.platform?.env ?? {}) as Record<string, string | undefined>, settings.default_from);
+	const fromAddr = bareAddress(platformEnv.POSTMARK_FROM ?? '');
 	if (forwardList.includes(fromEmail) || fromEmail === fromAddr) {
 		return json({ ignored: 'self' }, { status: 200 });
 	}
@@ -167,7 +172,7 @@ export const POST: RequestHandler = async (event) => {
 		} catch (e) {
 			console.error('engagement markDirty failed:', e);
 		}
-		// SEO Snapshot (#190): a real reply tags snapshot:replied; an auto-reply doesn't.
+		// Snapshot feature (#190): a real reply tags snapshot:replied; an auto-reply doesn't.
 		if (snapshots && !reviewThread) {
 			try {
 				await snapshot.tagReply(db, event.platform?.env, contactId, p.Headers, subject, fromEmail);
@@ -180,20 +185,21 @@ export const POST: RequestHandler = async (event) => {
 	// Forward a copy to the operator's inbox (best-effort, #381). From = a dedicated sender
 	// with the contact's name ("Ann Lee via <app name>", Settings → Branding), Reply-To = the contact, so
 	// replying from the inbox reaches them directly.
-	// The sender must be on the verified sending domain (POSTMARK_FROM's) — never the
-	// forward-to inbox, which may be on another domain and fail SPF/DMARC alignment.
-	const platformEnv = (event.platform?.env ?? {}) as Record<string, string | undefined>;
+	// The sender must be on the verified sending domain (POSTMARK_FROM's, else the Default From's)
+	// — never the forward-to inbox, which may be on another domain and fail SPF/DMARC alignment.
 	const senderAddress = forwardTo ? forwardSenderAddress(platformEnv) : '';
 	if (forwardTo && !senderAddress) {
 		console.error(
 			'inbound forward skipped: no sender on the verified sending domain. Set INBOUND_FORWARD_FROM, ' +
-				'REVIEW_FROM or POSTMARK_FROM to an address on the POSTMARK_FROM domain.'
+				'REVIEW_FROM, POSTMARK_FROM or the Default From to an address on the sending domain.'
 		);
 	}
 	if (forwardTo && senderAddress) {
 		try {
-			const token = env(event, 'POSTMARK_TOKEN');
-			const txStream = env(event, 'POSTMARK_STREAM_TX');
+			// #700: the active sending provider (Settings → Sending, else the env).
+			const { provider: mail, creds: mailCreds } = await mailSetup(db, event.platform?.env);
+			if (!mail) throw new Error(mailCreds.postmark.tokenError ?? 'no sending provider is configured (POSTMARK_TOKEN)');
+			const txStream = mail.streams.transactional;
 			const baseUrl = await publicBaseUrl(db, event.platform?.env, event.url.origin);
 
 			// Link the thread when we can find it, else the contact, else the inbox list.
@@ -241,7 +247,7 @@ export const POST: RequestHandler = async (event) => {
 				appName: (await getBranding(db)).appName
 			});
 			const sent = await sendReplyForward(
-				token,
+				mail,
 				message,
 				senderAddress,
 				forwardFallbackAddress(platformEnv)
@@ -250,7 +256,7 @@ export const POST: RequestHandler = async (event) => {
 			// #585: answering the forward from a mail client names it in In-Reply-To / References;
 			// its id on the reply row is how that answer finds this thread.
 			if (sent.ok && sent.messageId && inserted?.id) {
-				await db.prepare('UPDATE replies SET forward_message_id = ? WHERE id = ?').bind(sent.messageId, inserted.id).run();
+				await db.prepare('UPDATE replies SET forward_message_id = ?, forward_provider = ? WHERE id = ?').bind(sent.messageId, mail.id, inserted.id).run();
 			}
 		} catch (e) {
 			console.error('inbound forward failed:', e);

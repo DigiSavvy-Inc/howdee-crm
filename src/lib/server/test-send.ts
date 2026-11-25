@@ -10,7 +10,7 @@ import type { TemplateRow } from './templates';
 import { renderBody, renderBodyInTemplate, type ComposeBody } from './compose-body';
 import { getSignature } from './email-signature';
 import { signUnsub } from './token';
-import { sendBatch } from './postmark';
+import { asMailProvider, streamFields, toMailResult, type MailProvider } from './mail';
 import { listUnsubscribeHeaders, unsubscribeProblems, UNSUB_REFUSED_PREFIX } from '$lib/list-unsubscribe';
 
 export type TestSendInput = {
@@ -24,7 +24,9 @@ export type TestSendInput = {
 	direct?: boolean;
 };
 
-export type TestSendEnv = { token: string; stream: string; secret: string; baseUrl: string };
+/** #700: `provider` = the active sending provider; without one, a Postmark adapter for `token`
+ *  (the test then goes to the named `stream`, as before). */
+export type TestSendEnv = { token?: string; stream: string; secret: string; baseUrl: string; provider?: MailProvider | null };
 
 /** Render (template, merge tags, conditionals for the recipient's contact record) and send. */
 export async function sendTestEmail(db: D1Database, env: TestSendEnv, input: TestSendInput): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -84,21 +86,22 @@ export async function sendTestEmail(db: D1Database, env: TestSendEnv, input: Tes
 		const problems = unsubscribeProblems({ html: filled.html, text: filled.text, headers: testHeaders }, unsubUrl);
 		if (problems.length) return { ok: false, error: `${UNSUB_REFUSED_PREFIX}: ${problems.join('; ')}.` };
 	}
-	const results = await sendBatch(env.token, [
+	const provider = env.provider ?? asMailProvider({ token: env.token, stream: env.stream }) ?? null;
+	if (!provider) return { ok: false, error: 'Postmark error: no server token is set.' };
+	const results = await provider.sendBatch([
 		{
-			From: from,
-			To: testTo,
-			...(testHeaders.length ? { Headers: testHeaders } : {}),
-			Subject: `[TEST] ${filled.subject}`,
-			HtmlBody: filled.html,
-			TextBody: filled.text,
-			MessageStream: env.stream,
-			TrackOpens: false,
-			TrackLinks: 'None'
+			from,
+			to: testTo,
+			...(testHeaders.length ? { headers: testHeaders.map((h) => ({ name: h.Name, value: h.Value })) } : {}),
+			subject: `[TEST] ${filled.subject}`,
+			html: filled.html,
+			text: filled.text,
+			...streamFields(provider, env.stream),
+			tracking: { opens: false, links: 'none' }
 		}
 	]);
 
-	const res = results[0];
-	if (!res || res.ErrorCode !== 0) return { ok: false, error: `Postmark error: ${res?.Message ?? 'no response'}` };
+	const res = toMailResult(results[0]);
+	if (!res || res.ErrorCode !== 0) return { ok: false, error: `${provider.label} error: ${res?.Message ?? 'no response'}` };
 	return { ok: true };
 }

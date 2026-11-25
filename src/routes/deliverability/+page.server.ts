@@ -1,10 +1,11 @@
 import { fail, redirect, type Actions } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { getDB } from '$lib/server/db';
+import { getMailProvider } from '$lib/server/mail';
 import { addTag } from '$lib/server/automations';
 import { bouncedCounts, deliverabilityRates, suppressedTotal } from '$lib/server/deliverability';
 import { lastSuppressionSync, runSuppressionSync } from '$lib/server/suppression-sync';
-import { authBounces, checkSummary, domainAuthAlert, lastDomainAuth, runDomainAuthCheck, statusChanges, switchToCustomUnsubscribe, type DomainAuthEnv } from '$lib/server/domain-auth';
+import { authBounces, checkSummary, domainAuthAlert, lastDomainAuth, runDomainAuthCheck, statusChanges, switchToCustomUnsubscribe, withSendingCreds, type DomainAuthEnv } from '$lib/server/domain-auth';
 import { backfillState, hygieneCounts, runHygieneBackfill, startHygieneBackfill } from '$lib/server/hygiene';
 import { activeAlerts, dismissAlert, getAlertConfig, heldCampaigns, releaseHeldCampaign } from '$lib/server/deliverability-alerts';
 
@@ -90,10 +91,12 @@ export const actions: Actions = {
 	// only; the page confirms first), then re-run the checks so the row turns to Pass.
 	switchUnsubscribeHandling: async (event) => {
 		if (event.locals.user?.role !== 'admin') return fail(403, { unsubSwitchError: 'Only an admin can change the stream setting.' });
+		const db = getDB(event);
 		const env = (event.platform?.env ?? {}) as DomainAuthEnv;
-		const out = await switchToCustomUnsubscribe(env);
+		// #700: the token and stream sending uses (Settings → Sending, else the env).
+		const out = await switchToCustomUnsubscribe(await withSendingCreds(db, env));
 		if (!out.ok) return fail(502, { unsubSwitchError: out.error });
-		const { result } = await runDomainAuthCheck(getDB(event), env, 'manual');
+		const { result } = await runDomainAuthCheck(db, env, 'manual');
 		return { unsubSwitched: out.stream, domainChecked: checkSummary(result) };
 	},
 	// #306: "Check existing contacts" — (re)start the hygiene pass over subscribed contacts and
@@ -126,9 +129,10 @@ export const actions: Actions = {
 	// #285: unsubscribe contacts Postmark already suppresses (both streams' dumps).
 	syncSuppressions: async (event) => {
 		const env = event.platform?.env;
+		const db = getDB(event);
 		const out = await runSuppressionSync(
-			getDB(event),
-			{ token: env?.POSTMARK_TOKEN, stream: env?.POSTMARK_STREAM, txStream: env?.POSTMARK_STREAM_TX },
+			db,
+			await getMailProvider(db, env),
 			'manual'
 		);
 		if (!out.ok) return fail(502, { syncError: out.error });

@@ -1,7 +1,7 @@
 // Customizable unsubscribe page (#374): the stored config (app_state `unsubscribe_page`,
 // JSON — no migration), uploaded media in R2 (`MEDIA`, `unsubscribe/…`, served by
 // /img/unsubscribe/[file]) and the opt-in "Changed your mind? Resubscribe" action.
-import { isHardSuppression, suppressionsByEmail, suppressionStreams, unsuppress } from './postmark';
+import { asMailProvider, isHardSuppression, type MailSource } from './mail';
 import type { UnsubPayload } from './token';
 import { subscriptionChanged } from './subscription-trigger';
 import {
@@ -72,7 +72,8 @@ export const RESUB_REFUSED =
  */
 export async function selfResubscribe(
 	db: D1Database,
-	postmark: { token?: string; stream?: string; txStream?: string },
+	/** #700: the sending provider, or a Postmark credential bundle. */
+	postmark: MailSource,
 	payload: UnsubPayload,
 	cfg: UnsubPageConfig,
 	now: Date = new Date()
@@ -83,10 +84,10 @@ export async function selfResubscribe(
 	if (!contact) return { ok: false, reason: 'not_found', error: 'We couldn’t find this address.' };
 
 	let manualStream: string | null = null;
-	if (postmark.token) {
-		const streams = suppressionStreams(postmark.stream, postmark.txStream);
+	const mail = asMailProvider(postmark);
+	if (mail?.suppressions) {
 		try {
-			const { map } = await suppressionsByEmail(postmark.token, streams);
+			const { map } = await mail.suppressions.byEmail();
 			const s = map.get(email);
 			if (s && isHardSuppression(s.reason)) return { ok: false, reason: 'suppressed', error: RESUB_REFUSED };
 			if (s) manualStream = s.stream;
@@ -105,9 +106,9 @@ export async function selfResubscribe(
 		.bind(`Resubscribed via the unsubscribe page ${stamp} UTC`, email)
 		.run();
 
-	if (postmark.token && manualStream) {
+	if (mail?.suppressions && manualStream) {
 		try {
-			await unsuppress(postmark.token, manualStream, email);
+			await mail.suppressions.remove(email, manualStream);
 		} catch {
 			/* best-effort */
 		}

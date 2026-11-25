@@ -15,22 +15,26 @@ import {
 	contentChecks,
 	audienceChecks,
 	linkProbeChecks,
+	classifyProbe,
 	topicSkipCheck,
 	type AudienceStats,
 	type Check,
 	type ChecksReport,
-	type CoverageRecipient
+	type CoverageRecipient,
+	type Link,
+	type MergeLinkSample
 } from '$lib/presend-checks';
+import { buildCondCtx, evaluateConditionals } from '$lib/conditionals';
 import { signatureText, type EmailSignature } from '$lib/signature';
 import { getSignature } from './email-signature';
-import { UNSUB_PLACEHOLDER } from './email';
+import { UNSUB_PLACEHOLDER, personalize } from './email';
 import { renderBody, renderBodyInTemplate, storedBlocks, type ComposeBody } from './compose-body';
 import type { TemplateRow } from './templates';
 import { type SendableRow } from './segments';
 import { includedMemberIds, readAudience, recipientsForAudience, type Audience } from './campaign-audience';
 import { companyMergeFields } from './company-metrics';
 import { getSettings } from './settings';
-import { checkLinks } from './link-check';
+import { checkLinks, type FetchBudget, type Fetcher, type Limiter } from './link-check';
 import { listUnsubscribeHeaders } from '$lib/list-unsubscribe';
 import { optedOutIds, resolveTopicId, topicLabel } from './topics';
 
@@ -53,10 +57,89 @@ export type PresendDeps = {
 	media?: R2Bucket;
 	/** Run the live link check (network). */
 	checkLinks?: boolean;
-	fetcher?: (input: string, init: RequestInit) => Promise<Response>;
+	fetcher?: Fetcher;
 	/** Recipients already resolved by the caller (the send action). */
 	recipients?: SendableRow[];
+	/** #479: link-check knobs (tests: 0 ms retry delay; the tick: its deadline and its slice of
+	 *  the tick's fetch budget). Unset = the interactive defaults (LINK_CHECK_DEADLINE_MS,
+	 *  LINK_CHECK_MAX_FETCHES). Schedule-time softening is applyPolicy's `scheduling` option, so
+	 *  it comes after the policy's level overrides. */
+	retryDelayMs?: number;
+	linkDeadline?: number;
+	maxFetches?: FetchBudget;
+	/** #479: the probe concurrency limiter (the tick shares one between campaigns). */
+	limiter?: Limiter;
+	/** #479: the scheduled-send tick doesn't fill in merge-tag links (that would resolve the whole
+	 *  audience before the claim, and a sample failure only ever warns): they're reported as
+	 *  checked when composing. */
+	skipMergeLinks?: boolean;
 };
+
+/** #479: sample recipients a merge-tag href is filled in for. */
+export const MERGE_LINK_SAMPLES = 3;
+
+const MERGE_HREF = /\{\{|%7B%7B/i;
+
+/** #479: does the email have merge-tag hrefs (then the link check needs sample recipients)? */
+export function hasMergeLinks(links: Link[]): boolean {
+	return links.some((l) => MERGE_HREF.test(l.href));
+}
+
+/** A merge-tag href filled in for one recipient, the way the send path fills it. */
+export function fillHref(href: string, r: SendableRow): string {
+	const raw = href.replace(/%7B%7B/gi, '{{').replace(/%7D%7D/gi, '}}').replace(/%7C/gi, '|');
+	return personalize(evaluateConditionals(raw, buildCondCtx(r.tags, r.meta)), '', r).trim();
+}
+
+/** #479: the live link check over the email's links. Plain http(s) links are probed once;
+ *  merge-tag hrefs ({{field:website}}, https://site.com/{{first_name}}) are probed filled in for
+ *  up to 3 sample recipients and can only ever warn. Results live for this call only. */
+export async function liveLinkChecks(
+	links: Link[],
+	samples: SendableRow[],
+	deps: Pick<PresendDeps, 'fetcher' | 'retryDelayMs' | 'linkDeadline' | 'maxFetches' | 'limiter' | 'skipMergeLinks'> = {}
+): Promise<Check[]> {
+	const where = new Map<string, string>();
+	for (const l of links) if (l.text && !where.has(l.href)) where.set(l.href, l.text);
+	const plain = [...new Set(links.filter((l) => !MERGE_HREF.test(l.href)).map((l) => l.href))];
+	const sampleRows = samples.slice(0, MERGE_LINK_SAMPLES);
+	const mergeHrefs = [...new Set(links.filter((l) => MERGE_HREF.test(l.href)).map((l) => l.href))];
+	const atCompose = deps.skipMergeLinks ? mergeHrefs.length : 0;
+	const merged = (deps.skipMergeLinks ? [] : mergeHrefs).map((href) => ({
+		href,
+		urls: sampleRows.map((r) => fillHref(href, r)).filter((u) => /^https?:\/\//i.test(u) && !MERGE_HREF.test(u))
+	}));
+	const plainSet = new Set(plain);
+	// Plain links first, so they win the 60-link cap and the budget over merge-tag samples.
+	const { probes, unfinished } = await checkLinks([...plain, ...merged.flatMap((m) => m.urls)], deps.fetcher, {
+		retryDelayMs: deps.retryDelayMs,
+		deadline: deps.linkDeadline,
+		maxFetches: deps.maxFetches,
+		limiter: deps.limiter
+	});
+	const byUrl = new Map(probes.map((p) => [p.url, p]));
+	const unfinishedSet = new Set(unfinished);
+	// Over the cap = neither probed nor left unfinished by the budgets.
+	const plainSkipped = plain.filter((u) => /^https?:\/\//i.test(u) && !byUrl.has(u) && !unfinishedSet.has(u)).length;
+	// A merge-tag link none of whose samples was probed was never checked.
+	const sampled = merged.filter((m) => m.urls.some((u) => byUrl.has(u)));
+	const unsampled = merged.length - sampled.length;
+	const merge: MergeLinkSample[] = sampled
+		.map((m) => ({
+			href: m.href,
+			samples: m.urls.length,
+			failed: m.urls.filter((u) => {
+				const p = byUrl.get(u);
+				return !!p && !['ok', 'login', 'refused', 'blocked'].includes(classifyProbe(p));
+			}).length
+		}));
+	const rows = linkProbeChecks(
+		probes.filter((p) => plainSet.has(p.url)),
+		plainSkipped,
+		{ where, unfinished: unfinished.filter((u) => plainSet.has(u)), merge, unsampled, mergeAtCompose: atCompose }
+	);
+	return rows;
+}
 
 const CHUNK = 500;
 
@@ -171,10 +254,8 @@ export async function runPresendChecks(db: D1Database, input: PresendInput, deps
 	const checks: Check[] = [];
 
 	checks.push(...linkChecks(links));
-	if (deps.checkLinks) {
-		const { probes, skipped } = await checkLinks(links.map((l) => l.href), deps.fetcher);
-		checks.push(...linkProbeChecks(probes, skipped));
-	}
+	// #479: the live link rows go right after these, once the audience (merge-link samples) is known.
+	const liveAt = checks.length;
 	checks.push(...imageChecks(images, contentText, await imageSizes(deps.media, images.map((i) => i.src))));
 
 	// #373: the headers a broadcast send adds (send.ts), checked with the HTML and text.
@@ -202,7 +283,8 @@ export async function runPresendChecks(db: D1Database, input: PresendInput, deps
 		if (skipped) checks.push(topicSkipCheck(skipped, (await topicLabel(db, topicId)) ?? 'this topic'));
 	}
 
-	return summarize(checks, !!deps.checkLinks);
+	if (deps.checkLinks) checks.splice(liveAt, 0, ...(await liveLinkChecks(links, recipients ?? [], deps)));
+	return { ...summarize(checks, !!deps.checkLinks), checkedAt: new Date().toISOString() };
 }
 
 /** A stored campaign as check input (API). */

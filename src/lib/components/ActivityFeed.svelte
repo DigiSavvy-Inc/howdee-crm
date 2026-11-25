@@ -162,6 +162,11 @@
 				<span class="verb">{a.type === 'invoice' ? 'Invoice' : 'Payment received'}</span>
 				{#if a.url}<a href={a.url} target="_blank" rel="noopener noreferrer">{a.ref}</a>{:else}<span>{a.ref}</span>{/if}
 				<span class="muted detail">· {money(a.amount, a.currency)}{#if a.type === 'invoice' && a.status}{' '}· {a.status.replace(/_/g, ' ')}{/if}{#if a.type === 'payment' && a.detail}{' '}· for {a.detail}{/if}</span>
+			{:else if a.type === 'deliverability' && a.check_key === 'preflight'}
+				<!-- #479: a scheduled send held because its pre-send checks failed at the send time. -->
+				<span class="verb">Scheduled send held:</span>
+				<a href="/campaign/{a.campaign_id}" title={a.subject ?? ''}>{a.subject ?? 'a campaign'}</a>
+				<span class="muted detail">· failed pre-send checks</span>
 			{:else if a.type === 'timing'}
 				<!-- #566: Timing's latest tracked entry. -->
 				<span class="verb">Time tracked in Timing</span>

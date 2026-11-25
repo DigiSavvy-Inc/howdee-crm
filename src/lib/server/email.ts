@@ -191,7 +191,7 @@ const EMAIL_STYLES = `<style>
 
 /**
  * A styled email DOCUMENT around pre-rendered HTML with NO signature, footer, or
- * unsubscribe link — for internal/operator mail (e.g. the SEO Snapshot review email) and
+ * unsubscribe link — for internal/operator mail (e.g. a review email to the operator) and
  * for previewing legacy fragment-only bodies. Same typography as emailShell().
  */
 export function emailDocument(innerHtml: string): string {

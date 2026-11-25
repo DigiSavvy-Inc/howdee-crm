@@ -1,11 +1,34 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { enhance } from '$app/forms';
+	import { replaceState } from '$app/navigation';
+	import { tokenFromHash } from '$lib/setup-link';
 	import logomark from '$lib/assets/logomark.svg';
 	import { DEFAULT_APP_NAME } from '$lib/branding';
 	let { data, form } = $props();
 	const logoSrc = $derived(data.branding?.logoUrl ?? logomark);
 	const values = $derived((form && 'values' in form ? form.values : null) ?? { name: '', email: '', github_login: '' });
 	const errors = $derived((form && 'errors' in form ? form.errors : null) ?? {}) as Record<string, string | undefined>;
+
+	// #731: the deploy's setup link is `/setup#token=…`. The fragment never reaches the server; read
+	// it here, fill the field, then take it out of the address bar (and so out of the history).
+	let token = $state('');
+	let fromLink = $state(false);
+	onMount(() => {
+		const t = tokenFromHash(location.hash);
+		if (location.hash) {
+			try {
+				replaceState(location.pathname + location.search, {});
+			} catch {
+				// The router isn't ready yet: drop the fragment directly.
+				history.replaceState(history.state, '', location.pathname + location.search);
+			}
+		}
+		if (t) {
+			token = t;
+			fromLink = true;
+		}
+	});
 </script>
 
 <svelte:head><title>Set up</title></svelte:head>
@@ -34,7 +57,8 @@
 			<form method="POST" use:enhance class="pwform">
 				<label>
 					<span>Setup token</span>
-					<input type="password" name="token" autocomplete="off" required />
+					<input type="password" name="token" autocomplete="off" bind:value={token} required />
+					{#if fromLink}<span class="hint">Filled in from your setup link.</span>{/if}
 				</label>
 				<label>
 					<span>Name</span>

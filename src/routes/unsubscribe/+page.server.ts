@@ -3,11 +3,13 @@ import type { PageServerLoad } from './$types';
 import { getDB, env } from '$lib/server/db';
 import { verifyUnsub } from '$lib/server/token';
 import { unsubscribeAll } from '$lib/server/unsubscribe';
+import { getMailProvider } from '$lib/server/mail';
 import { getUnsubPage, selfResubscribe } from '$lib/server/unsubscribe-page';
 import { campaignTopicId, publicTopics, topicLabel, type PublicTopic } from '$lib/server/topics';
 import { saveTopicChoicesAndFire } from '$lib/server/subscription-trigger';
 import { unsubscribeCsp } from '$lib/unsubscribe-page';
 import { PREFERENCES_REASON } from '$lib/topics';
+import { recordUnsubscribePageView } from '$lib/server/crm-tracking-events';
 
 /**
  * The footer (#54, #414): the campaign's topic label when it has one, and the consent note
@@ -39,6 +41,27 @@ export const load: PageServerLoad = async (event) => {
 	const page = await getUnsubPage(event.platform?.env?.DB);
 	const payload = await verifyUnsub(secret, token);
 	if (!payload) return { invalid: true as const, page };
+
+	// #701 / #518: in CRM tracking mode the unsubscribe link isn't rewritten, so a page view of a
+	// CRM-tracked send is stored as its `unsubscribe_click` (the scanner-burst rule needs it).
+	// Real page loads only (not the data reload after a form action). Best-effort: after the
+	// response when the platform allows it, never throws, never unsubscribes anyone.
+	if ((event.request?.method ?? 'GET') === 'GET' && !event.isDataRequest) {
+		const db = event.platform?.env?.DB;
+		if (db) {
+			const cf = (event.platform as { cf?: { country?: unknown } } | undefined)?.cf;
+			const work = recordUnsubscribePageView(db, payload, {
+				origin: event.url.origin,
+				userAgent: event.request?.headers.get('user-agent') ?? null,
+				country: typeof cf?.country === 'string' ? cf.country : null
+			}).catch((e: unknown) => {
+				console.error('unsubscribe page view tracking failed:', (e instanceof Error ? e.message : String(e)).slice(0, 200));
+			});
+			const ctx = (event.platform as { ctx?: { waitUntil?: (p: Promise<unknown>) => void } } | undefined)?.ctx;
+			if (ctx?.waitUntil) ctx.waitUntil(work);
+			else await work;
+		}
+	}
 
 	// Subscriber-facing provenance (#54) — the topic label + consent note only (#414).
 	let footerTopic: string | null = null;
@@ -94,7 +117,7 @@ export const actions: Actions = {
 
 		if (ids.length && !keep.size) {
 			await saveTopicChoicesAndFire(db, contact.id, ids, keep);
-			await unsubscribeAll(db, { token: pm?.POSTMARK_TOKEN, stream: pm?.POSTMARK_STREAM }, payload, PREFERENCES_REASON, null, {
+			await unsubscribeAll(db, await getMailProvider(db, pm), payload, PREFERENCES_REASON, null, {
 				source: 'preference_center'
 			});
 			return { success: true as const, email };
@@ -105,7 +128,7 @@ export const actions: Actions = {
 		if (stillUnsubscribed && String(data.get('resubscribe') ?? '') === '1') {
 			const res = await selfResubscribe(
 				db,
-				{ token: pm?.POSTMARK_TOKEN, stream: pm?.POSTMARK_STREAM, txStream: pm?.POSTMARK_STREAM_TX },
+				await getMailProvider(db, pm),
 				payload,
 				await getUnsubPage(db)
 			);
@@ -130,7 +153,7 @@ export const actions: Actions = {
 		const email = payload.e.toLowerCase();
 		await unsubscribeAll(
 			db,
-			{ token: event.platform?.env?.POSTMARK_TOKEN, stream: event.platform?.env?.POSTMARK_STREAM },
+			await getMailProvider(db, event.platform?.env),
 			payload,
 			reason || null,
 			detail || null
@@ -149,7 +172,7 @@ export const actions: Actions = {
 		const pm = event.platform?.env;
 		const res = await selfResubscribe(
 			db,
-			{ token: pm?.POSTMARK_TOKEN, stream: pm?.POSTMARK_STREAM, txStream: pm?.POSTMARK_STREAM_TX },
+			await getMailProvider(db, pm),
 			payload,
 			await getUnsubPage(db)
 		);

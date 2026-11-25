@@ -29,14 +29,12 @@ describe('buildContactSearch (pure)', () => {
 		expect(buildContactSearch('   \t  ')).toEqual({ where: '', binds: [] });
 	});
 
-	it('escapes LIKE wildcards (%, _, \\) in the bound pattern', () => {
-		const { binds } = buildContactSearch('50%_off\\x');
+	it('#485: binds the raw text and matches with instr, never a LIKE pattern', () => {
+		const { where, binds } = buildContactSearch('50%_off\\x');
 		expect(binds.length).toBeGreaterThan(0);
-		for (const b of binds) {
-			expect(b).toContain('\\%');
-			expect(b).toContain('\\_');
-			expect(b).toContain('\\\\');
-		}
+		for (const b of binds) expect(b).toBe('50%_off\\x');
+		expect(where).not.toMatch(/\bLIKE\b/);
+		expect(where).toContain('instr(');
 	});
 
 	it('binds one value per ? placeholder in where', () => {

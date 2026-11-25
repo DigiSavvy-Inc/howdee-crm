@@ -1,9 +1,10 @@
 import { fillRecipientTemplates } from './email';
 import { signUnsub } from './token';
-import { sendBatch, type PostmarkMessage, type PostmarkResult } from './postmark';
+import { postmarkProvider, streamFields, toMailResult, type LinkTracking, type MailProvider, type MailResult, type MailStream, type OutboundMessage } from './mail';
 import { buildCondCtx, hasConditionals } from '$lib/conditionals';
 import { decorateLinks, loadLinkMatcher, type LinkMatcher } from './site-tracking';
 import { signVisitorToken } from './track-token';
+import { addCrmTracking, newTrackId } from './crm-tracking';
 import { hasFormTags } from '$lib/form-embed';
 import { hasCompanyTags } from '$lib/merge-tags';
 import { companyMergeFields } from './company-metrics';
@@ -31,9 +32,10 @@ export type SendResult = {
 	skipped?: number;
 	failed: number;
 	firstError: string | null;
-	/** Raw Postmark results, same order as `recipients`. Lets callers (e.g. the
-	 *  automation engine) classify per-recipient ErrorCodes as hard vs transient. */
-	results: PostmarkResult[];
+	/** Per-recipient results, same order as `recipients` (Postmark's own result objects when
+	 *  Postmark sent them). Lets callers (e.g. the automation engine) classify per-recipient
+	 *  ErrorCodes as hard vs transient. */
+	results: MailResult[];
 };
 
 export { listUnsubscribeHeaders, UNSUB_REFUSED_PREFIX };
@@ -72,7 +74,11 @@ function chunk<T>(arr: T[], size: number): T[][] {
 export async function sendCampaignEmail(
 	db: D1Database,
 	opts: {
-		token: string;
+		/** #700: the sending provider. Omitted = a Postmark adapter for `token` + `stream`
+		 *  (how every caller worked before providers existed). */
+		provider?: MailProvider | null;
+		/** Postmark server token — only read when `provider` is omitted. */
+		token?: string;
 		secret: string;
 		baseUrl: string;
 		campaignId: number;
@@ -81,7 +87,10 @@ export async function sendCampaignEmail(
 		htmlTemplate: string;
 		textTemplate: string;
 		from: string;
+		/** Stream name (Postmark). With a `provider`, prefer `streamKind`. */
 		stream: string;
+		/** #700: broadcast or transactional — the provider maps it to its own stream. */
+		streamKind?: MailStream;
 		trackOpens?: boolean;
 		trackLinks?: 'None' | 'HtmlAndText' | 'HtmlOnly' | 'TextOnly';
 		unsubscribe?: boolean;
@@ -115,6 +124,8 @@ export async function sendCampaignEmail(
 ): Promise<SendResult> {
 	const {
 		token,
+		provider: givenProvider,
+		streamKind,
 		secret,
 		baseUrl,
 		campaignId,
@@ -137,6 +148,22 @@ export async function sendCampaignEmail(
 		abVariant,
 		skipAlreadySent = false
 	} = opts;
+
+	// #700: every message goes through the provider. Without one, a Postmark adapter for the
+	// token and the named stream — exactly the request this function always sent.
+	const provider: MailProvider = givenProvider ?? postmarkProvider({ token: token ?? '', broadcast: stream, transactional: stream });
+	const streamOf = streamKind ? { stream: streamKind } : streamFields(provider, stream);
+	const linkTracking = LINK_TRACKING[trackLinks];
+	// #701: open and click tracking by the CRM. The provider is asked not to track, and only
+	// mail that carries our unsubscribe link (broadcasts, scheduled sends, resends, automation
+	// emails) gets the pixel and signed links — a personal 1:1 email gets neither.
+	const crmTracking = provider.trackingBy === 'crm';
+	const crmOpens = crmTracking && unsubscribe && trackOpens && !!secret;
+	const crmLinks = crmTracking && unsubscribe && linkTracking !== 'none' && !!secret;
+	const messageTracking: { opens: boolean; links: LinkTracking } = crmTracking
+		? { opens: false, links: 'none' }
+		: { opens: trackOpens, links: linkTracking };
+	const trackIds: (string | null)[] = new Array(recipients.length).fill(null);
 
 	const inboundParts = replyToInbound ? replyToInbound.split('@') : null;
 	const fixedReplyTo = explicitReplyTo?.trim() || '';
@@ -176,7 +203,7 @@ export async function sendCampaignEmail(
 	// means that contact got the email on an earlier (interrupted) attempt → skip it; an `error`
 	// one becomes the accepted row when this attempt succeeds. Best-time rows
 	// (`recipientRowIds`) were claimed by the caller and are filled in place as before.
-	const results: PostmarkResult[] = new Array(recipients.length);
+	const results: MailResult[] = new Array(recipients.length);
 	const rowIds: (number | null)[] = recipients.map((_, i) => recipientRowIds?.[i] ?? null);
 	const pending: number[] = [];
 	let skipped = 0;
@@ -194,7 +221,7 @@ export async function sendCampaignEmail(
 		pending.push(i);
 	});
 
-	const messages: PostmarkMessage[] = new Array(recipients.length);
+	const messages: OutboundMessage[] = new Array(recipients.length);
 	const refused: (string | null)[] = new Array(recipients.length).fill(null);
 	for (const i of pending) {
 		const r = recipients[i];
@@ -230,18 +257,24 @@ export async function sendCampaignEmail(
 		if (linkMatcher && r.id && secret) {
 			filled.html = decorateLinks(filled.html, linkMatcher, await signVisitorToken(secret.trim(), { c: r.id }), appHost);
 		}
+		// #701: after personalisation and link decoration, so the signed link carries the final URL.
+		if (crmOpens || crmLinks) {
+			const trackId = newTrackId();
+			trackIds[i] = trackId;
+			filled.html = await addCrmTracking(filled.html, { base: baseUrl, secret: secret.trim(), trackId, links: crmLinks, opens: crmOpens });
+		}
 		messages[i] = {
-			From: from,
-			To: r.email,
-			...(replyTo ? { ReplyTo: replyTo } : {}),
-			...(bcc ? { Bcc: bcc } : {}),
-			...(msgHeaders.length ? { Headers: msgHeaders } : {}),
-			Subject: filled.subject,
-			HtmlBody: filled.html,
-			TextBody: filled.text,
-			MessageStream: stream,
-			TrackOpens: trackOpens,
-			TrackLinks: trackLinks
+			from,
+			to: r.email,
+			...(replyTo ? { replyTo } : {}),
+			...(bcc ? { bcc } : {}),
+			...(msgHeaders.length ? { headers: msgHeaders.map((h) => ({ name: h.Name, value: h.Value })) } : {}),
+			subject: filled.subject,
+			html: filled.html,
+			text: filled.text,
+			...streamOf,
+			tracking: messageTracking,
+			metadata: { campaignId, contactId: r.id }
 		};
 		const problems = unsubscribe ? unsubscribeProblems({ html: filled.html, text: filled.text, headers: msgHeaders }, unsubUrl) : [];
 		refused[i] = problems.length ? `${UNSUB_REFUSED_PREFIX}: ${problems.join('; ')}.` : null;
@@ -249,26 +282,28 @@ export async function sendCampaignEmail(
 	if (refused.some(Boolean)) console.error(`campaign ${campaignId}: ${refused.filter(Boolean).length} message(s) refused, unsubscribe path incomplete`);
 
 	const insert = db.prepare(
-		`INSERT INTO recipients (campaign_id, contact_id, email, message_id, status, error, send_pass, enrollment_id, enrollment_visit, ab_variant)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		`INSERT INTO recipients (campaign_id, contact_id, email, message_id, status, error, send_pass, enrollment_id, enrollment_visit, ab_variant, provider, track_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	);
-	const update = db.prepare(`UPDATE recipients SET message_id = ?, status = ?, error = ? WHERE id = ?`);
+	// #700: `provider` = who holds the message id (the webhook join key). #701: `track_id` = the
+	// id inside the CRM's pixel / links (only on accepted rows — a failed message reached nobody).
+	const update = db.prepare(`UPDATE recipients SET message_id = ?, status = ?, error = ?, provider = ?, track_id = ? WHERE id = ?`);
 	let accepted = 0;
 	let firstError: string | null = null;
 
-	// #536: one Postmark request per chunk, and that chunk's rows are written right after it
+	// #536: one provider request per chunk, and that chunk's rows are written right after it
 	// returns — so mail that went out always has its row (MessageID = the webhook join key),
 	// even when a later chunk fails or the Worker dies. A failed request (sendBatch reports it
 	// as error results; a throw is caught here too) marks only its own chunk as errors.
 	// #373: refused messages never go to Postmark.
-	for (const part of chunk(pending, SEND_CHUNK)) {
+	for (const part of chunk(pending, Math.min(SEND_CHUNK, provider.maxBatch || SEND_CHUNK))) {
 		const toSend = part.filter((i) => !refused[i]);
-		let sent: PostmarkResult[] = [];
+		let sent: (MailResult | undefined)[] = [];
 		if (toSend.length) {
 			try {
-				sent = (await sendBatch(token, toSend.map((i) => messages[i]))) ?? [];
+				sent = ((await provider.sendBatch(toSend.map((i) => messages[i]))) ?? []).map(toMailResult);
 			} catch (e) {
-				const why = `Postmark request failed: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300);
+				const why = `${provider.label} request failed: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300);
 				sent = toSend.map(() => ({ ErrorCode: -1, Message: why, Transport: true }));
 			}
 		}
@@ -284,7 +319,8 @@ export async function sendCampaignEmail(
 			// into the accepted row when this attempt succeeds (one row per recipient), else a new
 			// error row records this attempt too.
 			const rowId = recipientRowIds ? rowIds[i] : ok ? rowIds[i] : null;
-			if (rowId != null) return update.bind(res.MessageID ?? null, ok ? 'accepted' : 'error', ok ? null : res.Message, rowId);
+			const trackId = ok ? trackIds[i] : null;
+			if (rowId != null) return update.bind(res.MessageID ?? null, ok ? 'accepted' : 'error', ok ? null : res.Message, provider.id, trackId, rowId);
 			return insert.bind(
 				campaignId,
 				r.id,
@@ -295,7 +331,9 @@ export async function sendCampaignEmail(
 				sendPass ?? null,
 				enrollment?.id ?? null,
 				enrollment ? enrollment.visit : null,
-				abVariant ?? null
+				abVariant ?? null,
+				provider.id,
+				trackId
 			);
 		});
 		for (const rowPart of chunk(rows, 50)) await db.batch(rowPart);
@@ -303,6 +341,13 @@ export async function sendCampaignEmail(
 
 	return { accepted, skipped, failed: recipients.length - accepted - skipped, firstError, results };
 }
+
+const LINK_TRACKING: Record<'None' | 'HtmlAndText' | 'HtmlOnly' | 'TextOnly', LinkTracking> = {
+	None: 'none',
+	HtmlAndText: 'html_and_text',
+	HtmlOnly: 'html_only',
+	TextOnly: 'text_only'
+};
 
 /** Result message for a recipient skipped because an earlier attempt already sent to them. */
 export const ALREADY_SENT = 'Already sent';

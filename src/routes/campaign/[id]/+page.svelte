@@ -394,22 +394,66 @@
 				{#if form?.sendingSoon}<strong>Pulled forward — sending on the next tick.</strong>{/if}
 				{#if form?.released}<strong>Released — back on its schedule.</strong>{/if}
 			</p>
-			{#if c.held_at}
+			{#if form?.recheckPassed}<p class="sched-note"><strong>Checks passed — it sends on the next heartbeat.</strong></p>{/if}
+			{#if form?.recheckFailed}<p class="sched-note"><strong>Still failing: {form.recheckFailed}.</strong> It stays held.</p>{/if}
+			{#if form?.sentAnyway}<p class="sched-note"><strong>Released to send anyway — it goes out on the next heartbeat.</strong></p>{/if}
+			{#if c.held_at && c.held_reason === 'preflight'}
+				<!-- #479: held by its pre-send checks at the send time; never cancelled, never sent with the problem. -->
+				<p class="sched-note">
+					<strong><Icon name="pause" size={16} /> Held: {data.preflight?.summary ?? 'failed pre-send checks'}</strong> since {c.held_at} UTC. The links failed
+					when the send was due and kept failing. It won't send until it passes a re-check{data.preflight?.canOverride ? ' or you send it anyway' : ''}.
+				</p>
+				{#if data.preflight}
+					<ul class="held-checks">
+						{#each data.preflight.report.checks.filter((x) => x.level === 'block') as chk (chk.id)}
+							<li>
+								<strong>{chk.title}</strong>{#if chk.detail}&nbsp;<span class="muted">{chk.detail}</span>{/if}
+								{#if chk.items?.length}
+									<ul>
+										{#each chk.items as it, i (it)}
+											<li>
+												<code>{it}</code>
+												{#if chk.urls?.[i]}<a href={chk.urls[i]} target="_blank" rel="noopener noreferrer">Open</a>{/if}
+											</li>
+										{/each}
+									</ul>
+								{/if}
+							</li>
+						{/each}
+					</ul>
+					{#if data.preflight.checkedAt}<p class="sched-note muted">Last checked {data.preflight.checkedAt} UTC.</p>{/if}
+				{/if}
+			{:else if c.held_at}
 				<!-- #305: held by a critical deliverability alert; never cancelled. -->
 				<p class="sched-note">
 					<strong><Icon name="pause" size={16} /> Held</strong> since {c.held_at} UTC after a critical
 					<a href="/deliverability">deliverability alert</a> on this list. It won't send until an admin releases it.
 				</p>
+			{:else if c.preflight_retry_until}
+				<!-- #479: the send time came and a link failed; the tick keeps trying. -->
+				<p class="sched-note">
+					<strong>Waiting on links:</strong> a pre-send check failed at the send time ({data.preflight?.summary ?? 'see the checks'}). It's re-checked
+					every minute until {c.preflight_retry_until} UTC, then held.
+				</p>
 			{/if}
 			<p class="sched-note">
-				{#if c.best_time}Each contact then gets it at their best time within 24 hours. {/if}Fires on the next heartbeat, within ~1 min.
+				{#if c.best_time}Each contact then gets it at their best time within 24 hours. {/if}Fires on the next heartbeat, within ~1 min. Links are checked again then.
 			</p>
 		</div>
 		<span class="sched-actions">
 			<form method="POST" action="?/editScheduled" use:enhance class="inline">
 				<button type="submit" class="secondary small">Edit</button>
 			</form>
-			{#if c.held_at}
+			{#if c.held_at && c.held_reason === 'preflight'}
+				<form method="POST" action="?/recheckHold" use:enhance class="inline">
+					<button type="submit" class="secondary small">Re-check now</button>
+				</form>
+				{#if data.preflight?.canOverride}
+					<form method="POST" action="?/sendAnywayHold" use:enhance class="inline">
+						<button type="submit" class="secondary small" onclick={(e) => { if (!confirm('Send it with the failing checks? This is logged with your name.')) e.preventDefault(); }}>Send anyway</button>
+					</form>
+				{/if}
+			{:else if c.held_at}
 				{#if page.data.user?.role === 'admin'}
 					<form method="POST" action="?/releaseHold" use:enhance class="inline">
 						<button type="submit" class="secondary small">Release</button>
@@ -854,6 +898,10 @@
 	.sched-text p { margin: 0; }
 	.sched-note { color: var(--muted); font-size: var(--size-xs); line-height: var(--line-xs); letter-spacing: var(--letter-spacing-xs); }
 	.sched-actions { display: inline-flex; gap: var(--space-xs); flex-shrink: 0; }
+	.held-checks { margin: var(--space-xs) 0 0; padding-left: var(--space-m); font-size: var(--size-xs); line-height: var(--line-xs); letter-spacing: var(--letter-spacing-xs); }
+	.held-checks ul { padding-left: var(--space-m); }
+	.held-checks code { overflow-wrap: anywhere; }
+	.held-checks a { margin-left: var(--space-xs); }
 	@media (max-width: 768px) {
 		.sched-banner { flex-wrap: wrap; }
 	}

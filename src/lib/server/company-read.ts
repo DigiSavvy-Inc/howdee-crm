@@ -3,6 +3,7 @@
 
 import type { CompanyFilterKey, CompanySortKey } from '../company-overview';
 import { activeContactSql } from './active-audience';
+import { containsSql } from './sql-match';
 
 export type Company = {
 	id: number;
@@ -77,10 +78,6 @@ export const FILTER_SQL: Record<CompanyFilterKey, string | null> = {
 
 export type CompanySort = CompanySortKey;
 
-function likeTerm(q: string): string {
-	return `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
-}
-
 /**
  * Companies for /companies and GET /api/v1/companies — `q` matches name or domain, `filter` is
  * #436's whitelist. Billing columns, the `overdue` filter and the `outstanding` sort only with
@@ -103,8 +100,9 @@ export async function listCompanies(
 	const conds: string[] = [];
 	const binds: string[] = [];
 	if (q) {
-		conds.push(`(co.name LIKE ? ESCAPE '\\' OR COALESCE(co.domain, '') LIKE ? ESCAPE '\\')`);
-		binds.push(likeTerm(q), likeTerm(q));
+		// #485: instr, not LIKE (D1 caps LIKE patterns at 50 bytes).
+		conds.push(`(${containsSql('co.name')} OR ${containsSql("COALESCE(co.domain, '')")})`);
+		binds.push(q, q);
 	}
 	let filter: CompanyFilterKey = opts.filter && opts.filter in FILTER_SQL ? opts.filter : 'all';
 	if (filter === 'overdue' && !billing) filter = 'all';

@@ -7,6 +7,7 @@
 import { renderEmailHtml, renderEmailText } from './email';
 import { getSignature } from './email-signature';
 import { sendCampaignEmail, type SendableRecipient } from './send';
+import type { MailProvider } from './mail';
 import { replyThreadingIds, stripReplyPrefixes, type Conversation } from './conversations';
 
 export const MAX_REPLY_LENGTH = 20_000;
@@ -27,10 +28,15 @@ export function replyHeaders(conv: Conversation): { Name: string; Value: string 
 	];
 }
 
-/** Bare address from `"Name" <addr>` or `addr`. */
-export function bareAddress(from: string): string {
+/** The address from `"Name" <addr>` or `addr`, case kept (for an address that is sent from). */
+export function addressOf(from: string): string {
 	const m = /<([^<>\s]+@[^<>\s]+)>/.exec(from);
-	return (m ? m[1] : from).trim().toLowerCase();
+	return (m ? m[1] : from).trim();
+}
+
+/** Bare address from `"Name" <addr>` or `addr`, lowercased (for comparing). */
+export function bareAddress(from: string): string {
+	return addressOf(from).toLowerCase();
 }
 
 export type ReplyResult = { ok: true; campaignId: number } | { ok: false; campaignId: number | null; error: string };
@@ -44,6 +50,8 @@ export async function sendConversationReply(
 		/** BCC address (the operator) when the Settings toggle is on; omitted = no BCC. */
 		bcc?: string | null;
 		token: string;
+		/** #700: the active sending provider (unset = a Postmark adapter for `token`). */
+		provider?: MailProvider | null;
 		secret: string;
 		baseUrl: string;
 		stream: string;
@@ -95,6 +103,7 @@ export async function sendConversationReply(
 	try {
 		({ accepted, firstError } = await sendCampaignEmail(db, {
 			token: opts.token,
+			provider: opts.provider,
 			secret: opts.secret,
 			baseUrl: opts.baseUrl,
 			campaignId,

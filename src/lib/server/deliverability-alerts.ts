@@ -225,13 +225,18 @@ export function sendAlertWebhook(cfg: AlertConfig, p: AlertPayloadInput, fetchIm
 
 // ---- hold / release ----
 
-/** Hold every queued scheduled broadcast to `listId` (not yet held) — incl. one that includes
- *  it among several groups (#332). Returns their ids. */
+/** Hold every queued scheduled broadcast to `listId` — incl. one that includes it among several
+ *  groups (#332). Returns their ids. #479: a deliverability hold wins over a pre-send one: a
+ *  send held by its pre-send checks (held_reason 'preflight') is taken over (reason, this
+ *  alert's check id, a fresh held_at), and a send waiting out its pre-send retry window is held
+ *  too; the retry window and any "Send anyway" are cleared. So Re-check now / Send anyway (which
+ *  act only on 'preflight' holds) can't release it; only an admin's Release can. */
 export async function holdScheduledForList(db: D1Database, listId: number, checkId: number, now: Date): Promise<number[]> {
 	const rows = await db
 		.prepare(
-			`UPDATE campaigns SET held_at = ?1, held_check_id = ?2
-			 WHERE status = 'scheduled' AND held_at IS NULL
+			`UPDATE campaigns SET held_at = ?1, held_check_id = ?2, held_reason = 'deliverability', preflight_retry_until = NULL,
+			        preflight_override_by = NULL, preflight_override_user_id = NULL
+			 WHERE status = 'scheduled' AND (held_at IS NULL OR held_reason = 'preflight')
 			   AND (list_id = ?3 OR EXISTS (SELECT 1 FROM campaign_audiences ca
 			          WHERE ca.campaign_id = campaigns.id AND ca.list_id = ?3 AND ca.mode = 'include'))
 			 RETURNING id`
@@ -241,21 +246,37 @@ export async function holdScheduledForList(db: D1Database, listId: number, check
 	return rows.results.map((r) => r.id);
 }
 
-/** Release one held campaign. It goes back to its schedule (fires next tick if past due). */
+/** Release one held campaign. It goes back to its schedule (fires next tick if past due). A
+ *  #479 preflight hold released this way is checked again when it fires (a fresh window). A
+ *  new hold and a release both drop a "Send anyway" (#479: it counts for one fire only). */
 export async function releaseHeldCampaign(db: D1Database, campaignId: number): Promise<boolean> {
 	const res = await db
-		.prepare(`UPDATE campaigns SET held_at = NULL, held_check_id = NULL WHERE id = ? AND held_at IS NOT NULL`)
+		.prepare(
+			`UPDATE campaigns SET held_at = NULL, held_check_id = NULL, held_reason = NULL, preflight_retry_until = NULL,
+			        preflight_override_by = NULL, preflight_override_user_id = NULL
+			 WHERE id = ? AND held_at IS NOT NULL`
+		)
 		.bind(campaignId)
 		.run();
 	return res.meta.changes > 0;
 }
 
-export type HeldCampaign = { id: number; subject: string; scheduled_at: string | null; status: string; held_at: string; held_check_id: number | null; list_name: string | null };
+export type HeldCampaign = {
+	id: number;
+	subject: string;
+	scheduled_at: string | null;
+	status: string;
+	held_at: string;
+	held_check_id: number | null;
+	/** #479: 'deliverability' (#305) | 'preflight' (failed pre-send checks at fire time). */
+	held_reason: string | null;
+	list_name: string | null;
+};
 
 export async function heldCampaigns(db: D1Database): Promise<HeldCampaign[]> {
 	const rows = await db
 		.prepare(
-			`SELECT c.id, c.subject, c.scheduled_at, c.status, c.held_at, c.held_check_id, l.name AS list_name
+			`SELECT c.id, c.subject, c.scheduled_at, c.status, c.held_at, c.held_check_id, COALESCE(c.held_reason, 'deliverability') AS held_reason, l.name AS list_name
 			 FROM campaigns c LEFT JOIN lists l ON l.id = c.list_id
 			 WHERE c.held_at IS NOT NULL ORDER BY c.scheduled_at`
 		)

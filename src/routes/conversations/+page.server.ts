@@ -1,6 +1,7 @@
 import { fail, redirect, type Actions, type RequestEvent } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { getDB, env } from '$lib/server/db';
+import { getDB, env, FINISH_SETUP_FROM, FINISH_SETUP_SENDING, mailToken, sendingUnconfigured } from '$lib/server/db';
+import { mailSetup } from '$lib/server/mail';
 import { publicBaseUrlFor } from '$lib/server/public-url';
 import { findConversation, parseConvFilter, recentConversations } from '$lib/server/conversations';
 import { getSettings, fromAllowed } from '$lib/server/settings';
@@ -104,7 +105,8 @@ export const actions: Actions = {
 		if (!conv) return fail(404, { replyKey: key, replyError: 'Conversation not found — reload and try again.' });
 
 		const settings = await getSettings(db);
-		const from = settings.default_from || env(event, 'POSTMARK_FROM');
+		const from = settings.default_from || event.platform?.env?.POSTMARK_FROM || '';
+		if (!from) return fail(409, { replyKey: key, replyError: FINISH_SETUP_FROM });
 		if (!fromAllowed(from, settings.approved_senders)) {
 			return fail(400, {
 				replyKey: key,
@@ -115,15 +117,20 @@ export const actions: Actions = {
 		// operator mailbox is the From address the reply goes out as.
 		const bcc = settings.reply_bcc_operator ? bareAddress(from) : null;
 
+		// #700: the active sending provider; the token still falls back to the env.
+		const { provider: mail, creds: mailCreds } = await mailSetup(db, event.platform?.env);
+		// #731: no provider yet → the composer's error line (also on the contact page), not an error page.
+		if (sendingUnconfigured(mail, mailCreds)) return fail(409, { replyKey: key, replyError: FINISH_SETUP_SENDING });
 		const res = await sendConversationReply(db, {
 			conv,
 			bodyMd,
 			from,
 			bcc,
-			token: env(event, 'POSTMARK_TOKEN'),
+			token: mailToken(event, mailCreds),
+			provider: mail,
 			secret: env(event, 'SESSION_SECRET'),
 			baseUrl: await publicBaseUrlFor(event),
-			stream: env(event, 'POSTMARK_STREAM_TX'),
+			stream: mail?.streams.transactional ?? mailCreds.postmark.txStream,
 			replyToInbound: event.platform?.env?.POSTMARK_INBOUND_ADDRESS || undefined
 		});
 		if (!res.ok) return fail(400, { replyKey: key, replyError: res.error });

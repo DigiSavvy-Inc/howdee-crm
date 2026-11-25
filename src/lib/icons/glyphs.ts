@@ -79,6 +79,8 @@ export const GLYPHS = {
 	'chevron-down': "<path d=\"M9 10.5l3 3 3-3\"/>",
 	'chevron-up': "<path d=\"M9 13.5l3-3 3 3\"/>",
 	'chevron-right': "<path d=\"M10.5 9l3 3-3 3\"/>",
+	'chevron-left': "<path d=\"M13.5 9l-3 3 3 3\"/>",
+	'suggestion': "<path d=\"M9 17.5h6M10 20.5h4\"/><path d=\"M12 3.5a5.5 5.5 0 0 0-3.2 10c.7.5 1.2 1.3 1.2 2.1v.4h4v-.4c0-.8.5-1.6 1.2-2.1A5.5 5.5 0 0 0 12 3.5z\"/>",
 	'alert': "<path d=\"M12 4L3 19.5h18z\"/><path d=\"M12 10v4M12 16.75h.01\"/>",
 	'close': "<path d=\"M6.5 6.5l11 11M17.5 6.5l-11 11\"/>",
 	'arrow-up': "<path d=\"M12 19.5V5\"/><path d=\"M6.5 10.5L12 5l5.5 5.5\"/>",

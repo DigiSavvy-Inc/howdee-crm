@@ -3,6 +3,7 @@
 // (#205 part 2) call these directly with their own `Actor`.
 import { isStageColor, type StageColor, type StageKind } from '$lib/pipeline';
 import { firePipelineStageTriggers } from './pipeline-trigger';
+import { containsSql } from './sql-match';
 
 export type ActorKind = 'user' | 'automation' | 'api' | 'system';
 /** Who did it. `id` = users.id for 'user', automations.id for 'automation', api_keys.id for 'api'. */
@@ -386,12 +387,10 @@ export async function boardData(db: D1Database, filter: BoardFilter = {}): Promi
 	}
 	const q = (filter.q ?? '').trim().slice(0, 100);
 	if (q) {
-		const like = `%${q.replace(/[\\%_]/g, '\\$&')}%`;
-		where.push(
-			`(c.email LIKE ? ESCAPE '\\' OR c.name LIKE ? ESCAPE '\\' OR c.company LIKE ? ESCAPE '\\'
-			  OR TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, '')) LIKE ? ESCAPE '\\')`
-		);
-		binds.push(like, like, like, like);
+		// #485: instr, not LIKE (D1 caps LIKE patterns at 50 bytes).
+		const fields = ['c.email', 'c.name', 'c.company', "TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, ''))"];
+		where.push(`(${fields.map((f) => containsSql(f)).join(' OR ')})`);
+		binds.push(q, q, q, q);
 	}
 	const [stages, cards] = await Promise.all([
 		listStages(db),

@@ -1,7 +1,7 @@
 // #609: Settings → Setup — what a working install needs, and what is still missing.
 //
-// Three groups: required (local reads only), Postmark (calls the Postmark API with the server
-// token) and optional (one row per optional integration from the #605 table). A row is
+// Three groups: required (local reads only), Postmark (the active sending provider's own checks,
+// #700 — for Postmark, its API with the server token) and optional (one row per optional integration from the #605 table). A row is
 // `ready`, `attention` (needs fixing) or `optional` (optional and not set up). Secrets are
 // only ever reported as set / not set: no value, prefix or length reaches a row.
 //
@@ -9,10 +9,14 @@
 // notice, so the dashboard never calls Postmark.
 
 import { isEmail } from '$lib/csv';
-import { safeEqual } from './auth';
 import { secretRow, ZOHO_ORG_KEY, ZOHO_PROVIDER } from './integrations/secrets';
 import { ANTHROPIC_PROVIDER, OPENAI_SECRET_PROVIDER } from './ai/key';
-import { checkUnsubscribeHandling } from './domain-auth';
+import { mailSetup, postmarkCheckRows, webhookMatches } from './mail';
+import { resolveMailCredentials } from './mail/config';
+import { CLOCK_KEY, SENDS_SKIPPED_KEY, SKIP_KEY, TICK_SKIPPED_NO_PUBLIC_URL, TICK_SKIPPED_NO_SENDING } from './internal-tick';
+import { sendingUnconfigured } from './db';
+import { SEEN_BASE_URL_KEY } from './public-url';
+import { FINISH_SETUP_FROM, FINISH_SETUP_SENDING } from '$lib/finish-setup';
 
 export type SetupState = 'ready' | 'attention' | 'optional';
 export type SetupGroup = 'required' | 'postmark' | 'optional';
@@ -38,9 +42,6 @@ export type SetupReport = {
 
 /** A heartbeat tick older than this many minutes counts as stale (the cron runs every minute). */
 export const TICK_STALE_MINUTES = 10;
-
-const PM_API = 'https://api.postmarkapp.com';
-const PM_TIMEOUT_MS = 8_000;
 
 /**
  * The newest file in `migrations/`, baked in at build time by the `define` in vite.config.ts
@@ -135,36 +136,174 @@ async function defaultFromCheck(db: D1Database, env: AnyEnv): Promise<SetupCheck
 		...base,
 		state: 'attention',
 		detail: pmFrom ? `POSTMARK_FROM is a placeholder (${pmFrom}) and Settings has no Default From.` : 'Neither Settings → General nor POSTMARK_FROM has a From address.',
-		fix: 'Set Default From in Settings → General (an address on a domain verified in Postmark), or POSTMARK_FROM in wrangler.jsonc.'
+		fix: 'Set it in the setup wizard (step 1) or Settings → General. Use an address on a domain verified in Postmark. POSTMARK_FROM in wrangler.jsonc works too. Until one is set, sends are refused with "Finish setup".'
 	};
 }
 
-export async function heartbeatCheck(db: D1Database): Promise<SetupCheck> {
-	const base = { id: 'heartbeat', group: 'required' as const, label: 'Heartbeat (last tick)' };
+/** The last tick: when, how long ago, and which clock ran it (#729: `cron` = the app's own Cron
+ *  Trigger, `http` = the CRON_KEY endpoint; null for ticks recorded before #729). The clock has its
+ *  own key (CLOCK_KEY), so a long or cut-off `last_tick` summary never hides it. */
+async function lastTick(db: D1Database): Promise<{ at: string; age: number; clock: 'cron' | 'http' | null } | null> {
 	const row = await db
 		.prepare(
-			`SELECT updated_at, CAST((julianday('now') - julianday(updated_at)) * 1440 AS INTEGER) AS age
-			 FROM app_state WHERE key = 'last_tick'`
+			`SELECT t.updated_at, CAST((julianday('now') - julianday(t.updated_at)) * 1440 AS INTEGER) AS age, c.value AS clock
+			 FROM app_state t LEFT JOIN app_state c ON c.key = ?
+			 WHERE t.key = 'last_tick'`
 		)
-		.first<{ updated_at: string | null; age: number | null }>();
-	const fix = 'Deploy the heartbeat Worker (heartbeat/) with the same CRON_KEY as this Worker; see heartbeat/README.md.';
-	if (!row?.updated_at) return { ...base, state: 'attention', detail: 'The heartbeat has never ticked.', fix };
-	const age = row.age ?? 0;
-	if (age > TICK_STALE_MINUTES) return { ...base, state: 'attention', detail: `Last tick ${row.updated_at} UTC (${age} min ago).`, fix };
-	return { ...base, state: 'ready', detail: `Last tick ${row.updated_at} UTC (${age} min ago).` };
+		.bind(CLOCK_KEY)
+		.first<{ updated_at: string | null; age: number | null; clock: string | null }>();
+	if (!row?.updated_at) return null;
+	const clock = row.clock === 'cron' || row.clock === 'http' ? row.clock : null;
+	return { at: row.updated_at, age: row.age ?? 0, clock };
 }
+
+/** #731: a new install that uses the built-in clock simply hasn't ticked yet. Said first, before
+ *  any advice about `triggers.crons`, CRON_KEY or the heartbeat Worker. #732: Cloudflare can take
+ *  up to 15 minutes to start a new schedule (measured: 8 minutes on a fresh account). */
+export const FIRST_TICK_NOTE =
+	'The built-in clock runs once a minute. On Cloudflare a new schedule can take up to 15 minutes to start after the first deploy.';
+
+const CLOCK_TEXT = { cron: ' by the built-in clock', http: ' by the heartbeat endpoint' } as const;
+
+export async function heartbeatCheck(db: D1Database): Promise<SetupCheck> {
+	const base = { id: 'heartbeat', group: 'required' as const, label: 'Heartbeat (last tick)' };
+	const tick = await lastTick(db);
+	const fix =
+		'Add `triggers.crons` to wrangler.jsonc (the built-in clock; `npm run build` adds the handler) and deploy, or deploy the heartbeat Worker (heartbeat/) with the same CRON_KEY as this Worker; see heartbeat/README.md.';
+	if (!tick) return { ...base, state: 'attention', detail: 'The heartbeat has never ticked.', fix: `${FIRST_TICK_NOTE} If it still says this after that: ${fix}` };
+	const detail = `Last tick ${tick.at} UTC (${tick.age} min ago)${tick.clock ? CLOCK_TEXT[tick.clock] : ''}.`;
+	if (tick.age > TICK_STALE_MINUTES) return { ...base, state: 'attention', detail, fix };
+	return { ...base, state: 'ready', detail };
+}
+
+/** #729: CRON_KEY only gates the HTTP tick endpoint (the heartbeat Worker, manual runs). With the
+ *  built-in clock ticking it isn't needed, so "not set" is fine once that clock has ticked recently.
+ *  /api/health still needs it (its only key). */
+async function cronKeyCheck(db: D1Database, env: AnyEnv): Promise<SetupCheck> {
+	const check = secretCheck(
+		env,
+		'CRON_KEY',
+		'CRON_KEY',
+		'Run `npx wrangler secret put CRON_KEY` here and on the heartbeat Worker, with the same value. Not needed when the built-in clock runs the tick (`triggers.crons` in wrangler.jsonc), except for /api/health.'
+	);
+	if (check.state === 'ready') return check;
+	const tick = await lastTick(db);
+	if (tick?.clock === 'cron' && tick.age <= TICK_STALE_MINUTES)
+		return { ...check, state: 'ready', detail: 'Not set. Not needed: the built-in clock runs the tick (/api/health still needs it).', fix: undefined };
+	if (!tick)
+		return {
+			...check,
+			fix: `${FIRST_TICK_NOTE} After that this row turns ready by itself (only /api/health still needs CRON_KEY). If you use the heartbeat Worker instead, run \`npx wrangler secret put CRON_KEY\` here and on that Worker, with the same value.`
+		};
+	return check;
+}
+
+/** #729: the built-in clock ran nothing because the app has no public address (its links would
+ *  point at the internal origin). #731: the origin recorded at first-admin creation (or chosen in
+ *  the setup wizard, `public_base_url_seen`) counts as that address, so this row only shows while
+ *  none of the three is set. */
+async function publicUrlCheck(db: D1Database, env: AnyEnv): Promise<SetupCheck | null> {
+	const skip = await appState(db, SKIP_KEY);
+	if (skip?.value !== TICK_SKIPPED_NO_PUBLIC_URL) return null;
+	if (isSet(env, 'PUBLIC_BASE_URL') || (await appState(db, 'custom_domain'))?.value?.trim() || (await appState(db, SEEN_BASE_URL_KEY))?.value?.trim()) return null;
+	return {
+		id: 'public_url',
+		group: 'required',
+		label: "App's public address",
+		state: 'attention',
+		detail: `The built-in clock skipped its tick at ${skip.updated_at ?? '?'} UTC: no public address is set, so unsubscribe and tracking links could not be built. Nothing was sent.`,
+		fix: "Open the setup wizard's first step at the app's own address and choose “Use this address for links”, or set the address in Settings → Domain or PUBLIC_BASE_URL in wrangler.jsonc, then wait a minute.",
+		href: '/settings/setup?wizard=address'
+	};
+}
+
+/** #731: the last tick skipped every job that sends email because the provider resolution found no
+ *  sending credentials (housekeeping still ran). Only listed while that is still true, decided the
+ *  same provider-aware way as the tick (`providerFor`, through `mailSetup`). */
+async function sendsSkippedCheck(db: D1Database, env: AnyEnv): Promise<SetupCheck | null> {
+	const skip = await appState(db, SENDS_SKIPPED_KEY);
+	if (skip?.value !== TICK_SKIPPED_NO_SENDING) return null;
+	const { provider, creds } = await mailSetup(db, env);
+	if (!sendingUnconfigured(provider, creds)) return null;
+	return {
+		id: 'tick_no_sending',
+		group: 'required',
+		label: 'Scheduled work',
+		state: 'attention',
+		detail: `The last tick (${skip.updated_at ?? '?'} UTC) sent nothing: no sending provider is connected yet. Scheduled campaigns stay scheduled and automation emails wait; housekeeping (backups, scoring, engagement, pruning) still runs.`,
+		fix: 'Paste the token in Settings → Sending (or the setup wizard), then wait a minute.',
+		href: '/settings/setup?wizard=sending'
+	};
+}
+
+/** #731: automation emails held by a "Finish setup" hold right now (active passes whose last_error
+ *  is one of the two messages). Counts only; a held pass fails after 24 hours (automations.ts). */
+async function setupHoldsCheck(db: D1Database): Promise<SetupCheck | null> {
+	const rows = await db
+		.prepare(`SELECT last_error AS reason, COUNT(*) AS n FROM automation_enrollments WHERE status = 'active' AND last_error IN (?, ?) GROUP BY last_error`)
+		.bind(FINISH_SETUP_FROM, FINISH_SETUP_SENDING)
+		.all<{ reason: string; n: number }>();
+	const count = (reason: string) => rows.results.find((r) => r.reason === reason)?.n ?? 0;
+	const noFrom = count(FINISH_SETUP_FROM);
+	const noSending = count(FINISH_SETUP_SENDING);
+	if (!noFrom && !noSending) return null;
+	const emails = (n: number) => `${n.toLocaleString('en-US')} automation email${n === 1 ? ' is' : 's are'} waiting`;
+	const parts = [
+		...(noSending ? [`${emails(noSending)}: no sending provider configured.`] : []),
+		...(noFrom ? [`${emails(noFrom)}: no sender configured.`] : [])
+	];
+	return {
+		id: 'automation_setup_holds',
+		group: 'required',
+		label: 'Automation emails',
+		state: 'attention',
+		detail: `${parts.join(' ')} A pass still waiting after 24 hours fails.`,
+		fix: noSending
+			? 'Paste the sending provider’s token in Settings → Sending (or the setup wizard); the waiting emails go out within about 10 minutes.'
+			: 'Set the Default From address in Settings → General; the waiting emails go out within about 10 minutes.',
+		href: noSending ? '/settings/setup?wizard=sending' : '/settings'
+	};
+}
+
+/** #700: the sending provider's credential — Settings → Sending first, then the Worker secret.
+ *  Same row id as before (`postmark_token`) while Postmark is the only adapter. A stored token
+ *  that can't be read is a problem, never "set": sending is off then (no env fallback). */
+async function providerTokenCheck(db: D1Database, env: AnyEnv): Promise<SetupCheck> {
+	const creds = await resolveMailCredentials(db, env);
+	const from = creds.postmark.tokenFrom;
+	const base = { id: 'postmark_token', group: 'required' as const, label: 'Postmark server token', href: '/settings/sending' };
+	if (from === 'none')
+		return { ...base, state: 'attention', detail: 'Not set.', fix: 'Paste it in the setup wizard (step 2) or Settings → Sending. Or run `npx wrangler secret put POSTMARK_TOKEN`.' };
+	if (from === 'unreadable') return { ...base, state: 'attention', detail: creds.postmark.tokenError ?? 'Can’t be read.', fix: UNREADABLE_TOKEN_FIX };
+	return { ...base, state: 'ready', detail: from === 'app' ? 'Set in Settings → Sending.' : 'Set.' };
+}
+
+const UNREADABLE_TOKEN_FIX =
+	'Set MAIL_TOKEN_KEY back to the key the token was saved with, or save the token again in Settings → Sending (Clear token there falls back to POSTMARK_TOKEN).';
 
 /** The network-free required checks. */
 export async function localRequiredChecks(db: D1Database, env: AnyEnv): Promise<SetupCheck[]> {
-	const [migrations, from, heartbeat] = await Promise.all([migrationsCheck(db), defaultFromCheck(db, env), heartbeatCheck(db)]);
+	const [migrations, from, heartbeat, token, cronKey, publicUrl, sendsSkipped, setupHolds] = await Promise.all([
+		migrationsCheck(db),
+		defaultFromCheck(db, env),
+		heartbeatCheck(db),
+		providerTokenCheck(db, env),
+		cronKeyCheck(db, env),
+		publicUrlCheck(db, env),
+		sendsSkippedCheck(db, env),
+		setupHoldsCheck(db)
+	]);
 	return [
 		migrations,
 		bindingCheck(env),
 		secretCheck(env, 'SESSION_SECRET', 'SESSION_SECRET', 'Run `npx wrangler secret put SESSION_SECRET` with a long random value.'),
-		secretCheck(env, 'POSTMARK_TOKEN', 'Postmark server token', 'Run `npx wrangler secret put POSTMARK_TOKEN` with the Postmark server API token.'),
+		token,
 		from,
-		secretCheck(env, 'CRON_KEY', 'CRON_KEY', 'Run `npx wrangler secret put CRON_KEY` here and on the heartbeat Worker, with the same value.'),
-		heartbeat
+		cronKey,
+		heartbeat,
+		...(publicUrl ? [publicUrl] : []),
+		...(sendsSkipped ? [sendsSkipped] : []),
+		...(setupHolds ? [setupHolds] : [])
 	];
 }
 
@@ -174,134 +313,36 @@ export async function localRequiredAttention(db: D1Database, env: AnyEnv): Promi
 }
 
 // ---------------------------------------------------------------------------------------
-// Postmark
-
-type PmRead = { status: number; body: unknown } | { status: 0; error: string };
-
-async function pmGet(fetchFn: typeof fetch, token: string, path: string): Promise<PmRead> {
-	try {
-		const res = await fetchFn(`${PM_API}${path}`, {
-			headers: { Accept: 'application/json', 'X-Postmark-Server-Token': token },
-			signal: AbortSignal.timeout(PM_TIMEOUT_MS)
-		});
-		let body: unknown = null;
-		try {
-			body = await res.json();
-		} catch {
-			body = null;
-		}
-		return { status: res.status, body };
-	} catch (e) {
-		return { status: 0, error: (e instanceof Error ? e.message : String(e)).slice(0, 120) };
-	}
-}
-
-const rejected = (r: PmRead) => r.status === 401 || r.status === 403;
+// Sending provider (#700): the active provider answers its own checks. For Postmark these are
+// the four #609 rows (token, streams, webhook, unsubscribe handling), now in mail/postmark.ts.
 
 /** True when the Postmark webhook URL is this install's `/api/webhook` with our key. */
-export function webhookMatches(url: unknown, key: string): boolean {
-	if (typeof url !== 'string' || !key) return false;
-	try {
-		const u = new URL(url);
-		return u.pathname.replace(/\/+$/, '') === '/api/webhook' && safeEqual(u.searchParams.get('key') ?? '', key);
-	} catch {
-		return false;
-	}
+export { webhookMatches };
+
+/** The Postmark rows for an env alone (no Settings → Sending values). */
+export async function postmarkChecks(env: AnyEnv, fetchFn: typeof fetch = fetch): Promise<SetupCheck[]> {
+	return postmarkCheckRows(
+		{ token: str(env, 'POSTMARK_TOKEN'), broadcast: str(env, 'POSTMARK_STREAM'), transactional: str(env, 'POSTMARK_STREAM_TX'), webhookKey: str(env, 'WEBHOOK_KEY') },
+		fetchFn
+	);
 }
 
-export async function postmarkChecks(env: AnyEnv, fetchFn: typeof fetch = fetch): Promise<SetupCheck[]> {
-	const token = str(env, 'POSTMARK_TOKEN');
-	const broadcast = str(env, 'POSTMARK_STREAM') || 'broadcast';
-	const tx = str(env, 'POSTMARK_STREAM_TX') || 'outbound';
-	// Token + streams are required checks; the webhook and unsubscribe handling are Postmark's own group.
-	const tokenRow = { id: 'postmark_token', group: 'required' as const, label: 'Postmark server token' };
-	const streamsRow = { id: 'postmark_streams', group: 'required' as const, label: 'Message streams' };
-	const webhookRow = { id: 'postmark_webhook', group: 'postmark' as const, label: 'Postmark webhook', href: '/deliverability' };
-	const unsubRow = { id: 'postmark_unsubscribe', group: 'postmark' as const, label: 'Custom unsubscribe handling', href: '/deliverability#domain-auth' };
-
-	if (!token) {
-		const skipped = 'Not checked: POSTMARK_TOKEN is not set.';
-		return [
-			{ ...tokenRow, state: 'attention', detail: 'POSTMARK_TOKEN is not set.', fix: 'Run `npx wrangler secret put POSTMARK_TOKEN` with the Postmark server API token.' },
-			{ ...streamsRow, state: 'attention', detail: skipped },
-			{ ...webhookRow, state: 'attention', detail: skipped },
-			{ ...unsubRow, state: 'attention', detail: skipped }
-		];
-	}
-
-	const [b, t, hooks] = await Promise.all([
-		pmGet(fetchFn, token, `/message-streams/${encodeURIComponent(broadcast)}`),
-		broadcast === tx ? Promise.resolve(null) : pmGet(fetchFn, token, `/message-streams/${encodeURIComponent(tx)}`),
-		pmGet(fetchFn, token, `/webhooks?MessageStream=${encodeURIComponent(broadcast)}`)
-	]);
-	const reads = [b, t, hooks].filter((r): r is PmRead => !!r);
-
-	let token_: SetupCheck;
-	if (reads.some(rejected)) {
-		token_ = { ...tokenRow, state: 'attention', detail: 'Postmark rejected the token.', fix: 'Use the Server API token (Postmark → Servers → your server → API Tokens), not the account token.' };
-	} else if (reads.every((r) => r.status === 0)) {
-		const err = (b as { error?: string }).error ?? 'no answer';
-		token_ = { ...tokenRow, state: 'attention', detail: `Couldn't reach Postmark: ${err}.`, fix: 'Reload this page to check again.' };
-	} else {
-		token_ = { ...tokenRow, state: 'ready', detail: 'Postmark accepted the token.' };
-	}
-	const tokenOk = token_.state === 'ready';
-
-	// Streams: both must answer 200.
-	let streams: SetupCheck;
-	if (!tokenOk) streams = { ...streamsRow, state: 'attention', detail: 'Not checked: the token check failed.' };
-	else if (broadcast === tx) {
-		streams = {
-			...streamsRow,
-			state: 'attention',
-			detail: `POSTMARK_STREAM and POSTMARK_STREAM_TX are both "${broadcast}".`,
-			fix: 'Use a broadcast stream for POSTMARK_STREAM and the transactional one (usually "outbound") for POSTMARK_STREAM_TX.'
-		};
-	} else {
-		const missing: string[] = [];
-		const other: string[] = [];
-		for (const [name, r] of [[broadcast, b], [tx, t]] as [string, PmRead][]) {
-			if (r.status === 200) continue;
-			if (r.status === 404 || r.status === 422) missing.push(name);
-			else other.push(`${name} (${r.status === 0 ? 'no answer' : `HTTP ${r.status}`})`);
-		}
-		if (!missing.length && !other.length) streams = { ...streamsRow, state: 'ready', detail: `"${broadcast}" (broadcast) and "${tx}" (transactional) exist.` };
-		else
-			streams = {
-				...streamsRow,
-				state: 'attention',
-				detail: [missing.length ? `Not found: ${missing.join(', ')}.` : '', other.length ? `Couldn't read: ${other.join(', ')}.` : ''].filter(Boolean).join(' '),
-				fix: 'Create the stream in Postmark (Servers → your server → Message Streams), or fix POSTMARK_STREAM / POSTMARK_STREAM_TX in wrangler.jsonc.'
-			};
-	}
-
-	// Webhook on the broadcast stream, pointing at /api/webhook with our WEBHOOK_KEY.
-	const key = str(env, 'WEBHOOK_KEY');
-	const webhookFix = 'In Postmark → Servers → your server → the broadcast stream → Webhooks, add <this app>/api/webhook?key=<WEBHOOK_KEY> with every trigger on.';
-	let webhook: SetupCheck;
-	if (!key) webhook = { ...webhookRow, state: 'attention', detail: 'WEBHOOK_KEY is not set, so the webhook answers 401.', fix: 'Run `npx wrangler secret put WEBHOOK_KEY`, then point the Postmark webhook at /api/webhook?key=<WEBHOOK_KEY>.' };
-	else if (!tokenOk) webhook = { ...webhookRow, state: 'attention', detail: 'Not checked: the token check failed.' };
-	else if (hooks.status !== 200) webhook = { ...webhookRow, state: 'attention', detail: `Couldn't list webhooks (${hooks.status === 0 ? 'no answer' : `HTTP ${hooks.status}`}).`, fix: 'Reload this page to check again.' };
-	else {
-		const list = ((hooks.body as { Webhooks?: { Url?: unknown }[] } | null)?.Webhooks ?? []) as { Url?: unknown }[];
-		webhook = list.some((h) => webhookMatches(h?.Url, key))
-			? { ...webhookRow, state: 'ready', detail: `A webhook on "${broadcast}" points at this install.` }
-			: { ...webhookRow, state: 'attention', detail: `No webhook on "${broadcast}" points at /api/webhook with this install's key.`, fix: webhookFix };
-	}
-
-	// Unsubscribe handling (#373), read from the broadcast stream answer.
-	let unsub: SetupCheck;
-	if (!tokenOk) unsub = { ...unsubRow, state: 'attention', detail: 'Not checked: the token check failed.' };
-	else if (broadcast === tx || b.status !== 200) unsub = { ...unsubRow, state: 'attention', detail: `Not checked: the "${broadcast}" stream couldn't be read.` };
-	else {
-		const c = checkUnsubscribeHandling(broadcast, { ok: true, body: b.body });
-		unsub =
-			c.status === 'pass'
-				? { ...unsubRow, state: 'ready', detail: c.summary }
-				: { ...unsubRow, state: 'attention', detail: c.summary, fix: 'Use Switch to custom on Deliverability → Domain authentication.' };
-	}
-
-	return [token_, streams, webhook, unsub];
+/** The active provider's rows, credentials from Settings → Sending first, then the env. */
+export async function providerChecks(db: D1Database, env: AnyEnv, fetchFn: typeof fetch = fetch): Promise<SetupCheck[]> {
+	const { provider, creds } = await mailSetup(db, env);
+	if (provider) return (await provider.check(fetchFn)).rows;
+	// Not configured: the provider's own "not set" rows (Postmark is the only adapter so far).
+	const rows = await postmarkCheckRows({ token: '', broadcast: creds.postmark.stream, transactional: creds.postmark.txStream, webhookKey: creds.postmark.webhookKey }, fetchFn);
+	const unreadable = creds.postmark.tokenError;
+	if (!unreadable) return rows;
+	// A stored token that can't be read: say so instead of "not set".
+	return rows.map((r) =>
+		r.id === 'postmark_token'
+			? { ...r, href: '/settings/sending', detail: unreadable, fix: UNREADABLE_TOKEN_FIX }
+			: r.state === 'attention' && r.detail.startsWith('Not checked:')
+				? { ...r, detail: 'Not checked: the saved sending token can’t be read.' }
+				: r
+	);
 }
 
 // ---------------------------------------------------------------------------------------
@@ -347,7 +388,7 @@ export async function optionalChecks(db: D1Database, env: AnyEnv): Promise<Setup
 // ---------------------------------------------------------------------------------------
 
 export async function runSetupChecks(db: D1Database, env: AnyEnv, fetchFn: typeof fetch = fetch): Promise<SetupReport> {
-	const [local, pm, opt] = await Promise.all([localRequiredChecks(db, env), postmarkChecks(env, fetchFn), optionalChecks(db, env)]);
+	const [local, pm, opt] = await Promise.all([localRequiredChecks(db, env), providerChecks(db, env, fetchFn), optionalChecks(db, env)]);
 	// The verified token row (and the streams row after it) replace the local "is it set" row.
 	const verified = pm.filter((c) => c.group === 'required');
 	const required = local.flatMap((c) => (c.id === 'postmark_token' ? verified : [c]));

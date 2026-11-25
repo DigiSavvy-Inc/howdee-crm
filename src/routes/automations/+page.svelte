@@ -112,6 +112,27 @@
 	{#if form?.error}<p class="err">{form.error}</p>{/if}
 </Modal>
 
+{#if data.enrollPick}
+	<!-- #714: from a suggestion's "Move to an automation" step. -->
+	<section class="card enroll-pick" aria-labelledby="enroll-pick-title">
+		<h2 id="enroll-pick-title">Enroll <a href="/lists/{data.enrollPick.group.id}">{data.enrollPick.group.name}</a> in an automation</h2>
+		{#if data.enrollPick.automations.length}
+			<p class="muted small">
+				Pick one. Its Enroll contacts dialog opens with this {data.enrollPick.group.kind} picked and counts its active
+				members; nobody is enrolled until you press Enroll there.
+			</p>
+			<ul class="enroll-pick-list">
+				{#each data.enrollPick.automations as au (au.id)}
+					<li><a href="/automations/{au.id}?enroll_list={data.enrollPick.group.id}">{au.name}</a></li>
+				{/each}
+			</ul>
+		{:else}
+			<p class="muted small">No automation is active yet. Activate one (or start from a recipe below), then come back.</p>
+		{/if}
+		<p class="small"><a href="/automations">Close</a></p>
+	</section>
+{/if}
+
 <RecipeCards
 	recipes={data.recipes}
 	lists={data.recipeLists}
@@ -333,6 +354,10 @@
 </section>
 
 <style>
+	.enroll-pick { margin-bottom: var(--card-gap, var(--space-m)); }
+	.enroll-pick h2 { font-size: var(--size-m); margin: 0 0 var(--space-xs); }
+	.enroll-pick-list { margin: var(--space-xs) 0; padding-left: 1.1em; }
+
 	.head {
 		display: flex;
 		align-items: center;

@@ -25,7 +25,7 @@ export const load: PageServerLoad = async (event) => {
 	requireAdmin(event.locals);
 	const cfg = await readDomainConfig(getDB(event));
 	const env = event.platform?.env as { PUBLIC_BASE_URL?: string; CF_API_TOKEN?: string } | undefined;
-	const effective = resolveBaseUrl(cfg.domain, env?.PUBLIC_BASE_URL, event.url.origin);
+	const effective = resolveBaseUrl(cfg.domain, env?.PUBLIC_BASE_URL, event.url.origin, cfg.seen);
 	return {
 		domain: cfg.domain,
 		redirect: cfg.redirect,

@@ -1,7 +1,8 @@
 <script lang="ts">
 	// #311: the compose pre-send check panel. Runs POST /compose/checks with the current
-	// form fields; "Check links" adds the live link check. A block needs the "Send anyway"
-	// tick (posted as send_anyway=1 — the send action enforces it server-side too).
+	// form fields; "Check links" adds the live link check (#479: compose runs it on its own,
+	// ~3 s after the last edit). A block needs the "Send anyway" tick (posted as
+	// send_anyway=1 — the send action enforces it server-side too, admins only).
 	import { CATEGORY_LABELS, type Check, type CheckCategory, type ChecksReport } from '$lib/presend-checks';
 
 	let {
@@ -30,8 +31,26 @@
 
 	let busy = $state<'' | 'checks' | 'links'>('');
 	let failed = $state('');
+	// #479: "Checked 2 min ago" — refreshed every 30 s.
+	let now = $state(Date.now());
+	$effect(() => {
+		const t = setInterval(() => (now = Date.now()), 30_000);
+		return () => clearInterval(t);
+	});
+	const checkedAgo = $derived.by(() => {
+		const at = report?.checkedAt ? Date.parse(report.checkedAt) : NaN;
+		if (Number.isNaN(at)) return '';
+		const min = Math.floor(Math.max(0, now - at) / 60_000);
+		return min < 1 ? 'Checked just now' : `Checked ${min} min ago`;
+	});
+	type PanelReport = ChecksReport & { canOverride?: boolean; enforcement?: string };
+	/** #479: the server says whether this user may override (admins, unless overrides are off). */
+	const mayOverride = $derived((report as PanelReport | null)?.canOverride !== false);
+	let linksOpen = $state(false);
 
+	let seq = 0;
 	export async function run(links = false) {
+		const mine = ++seq;
 		busy = links ? 'links' : 'checks';
 		failed = '';
 		try {
@@ -39,13 +58,16 @@
 			if (links) fd.set('check_links', '1');
 			const res = await fetch(endpoint, { method: 'POST', body: fd });
 			if (!res.ok) throw new Error(String(res.status));
-			report = (await res.json()) as ChecksReport;
+			const next = (await res.json()) as ChecksReport;
+			if (mine !== seq) return; // a newer run started
+			report = next;
+			now = Date.now();
 			if (!report.blocks) sendAnyway = false;
 			onran?.();
 		} catch {
-			failed = "Checks couldn't run. Try again.";
+			if (mine === seq) failed = "Checks couldn't run. Try again.";
 		} finally {
-			busy = '';
+			if (mine === seq) busy = '';
 		}
 	}
 
@@ -61,6 +83,14 @@
 	);
 	const badge = (c: Check) => (c.level === 'block' ? 'failed' : c.level === 'warn' ? 'sending' : 'sent');
 	const label = (c: Check) => (c.level === 'block' ? 'Block' : c.level === 'warn' ? 'Warn' : 'Pass');
+	/** #479: passing live-link rows fold into one line ("41 links checked, all working"). Links
+	 *  that were never checked (a warning) always show. */
+	const foldable = (c: Check) => c.id === 'links.live_skipped' && c.level === 'pass' && !!report?.checks.some((x) => x.id === 'links.live');
+	/** The http(s) URL an item is about, for its Open button. */
+	const itemUrl = (c: Check, it: string, i: number): string | null => {
+		const u = c.urls?.[i] ?? it.split(' — ')[0];
+		return /^https?:\/\//i.test(u) && it.startsWith(u) ? u : null;
+	};
 </script>
 
 <section class="psc" aria-labelledby="psc-title">
@@ -72,9 +102,10 @@
 			</span>
 		{/if}
 		<span class="psc-actions">
+			{#if checkedAgo && !busy}<span class="muted psc-ago" aria-live="polite">{checkedAgo}</span>{/if}
 			<button type="button" class="secondary" onclick={() => run(false)} disabled={!!busy}>{busy === 'checks' ? 'Checking…' : 'Run checks'}</button>
-			<button type="button" class="secondary" onclick={() => run(true)} disabled={!!busy} title="Visits up to 30 links (5 s each)">
-				{busy === 'links' ? 'Checking links…' : 'Check links'}
+			<button type="button" class="secondary" onclick={() => run(true)} disabled={!!busy} title="Visits up to 60 links (5 s each, one retry)">
+				{busy === 'links' ? 'Checking links…' : report?.linksChecked ? 'Re-check links' : 'Check links'}
 			</button>
 		</span>
 	</header>
@@ -82,32 +113,51 @@
 	{#if !report}
 		<p class="muted psc-empty">{emptyText}</p>
 	{:else}
-		{#if stale}<p class="muted psc-stale">The email changed since these ran. Run checks again before sending.</p>{/if}
+		{#if stale}<p class="muted psc-stale">The email changed since these ran. They run again in a few seconds.</p>{/if}
 		{#each groups as g (g.cat)}
 			<h3>{CATEGORY_LABELS[g.cat]}</h3>
 			<ul>
 				{#each g.checks as c (c.id)}
-					<li class="psc-row">
-						<span class="badge {badge(c)}">{label(c)}</span>
-						<div class="psc-body">
-							<span class="psc-title">{c.title}{#if c.href}&nbsp;<a href={c.href}>{c.href === '/deliverability' ? 'Deliverability' : c.href === '/settings' ? 'Settings' : 'View'}</a>{/if}</span>
-							{#if c.detail}<span class="muted psc-detail">{c.detail}</span>{/if}
-							{#if c.items?.length}
-								<ul class="psc-items">
-									{#each c.items as it (it)}<li><code>{it}</code></li>{/each}
-								</ul>
-							{/if}
-						</div>
-					</li>
+					{#if !foldable(c) || linksOpen || c.id === 'links.live'}
+						<li class="psc-row">
+							<span class="badge {badge(c)}">{label(c)}</span>
+							<div class="psc-body">
+								<span class="psc-title"
+									>{c.title}{#if c.href}&nbsp;<a href={c.href}>{c.href === '/deliverability' ? 'Deliverability' : c.href === '/settings' ? 'Settings' : 'View'}</a>{/if}{#if c.id === 'links.live' && g.checks.some(foldable)}&nbsp;<button
+											type="button"
+											class="linklike"
+											aria-expanded={linksOpen}
+											onclick={() => (linksOpen = !linksOpen)}>{linksOpen ? 'Hide details' : 'Details'}</button
+										>{/if}</span
+								>
+								{#if c.detail}<span class="muted psc-detail">{c.detail}</span>{/if}
+								{#if c.items?.length}
+									<ul class="psc-items">
+										{#each c.items as it, i (it)}
+											{@const u = itemUrl(c, it, i)}
+											<li>
+												<code>{it}</code>
+												{#if u && c.level !== 'pass'}<a class="psc-open" href={u} target="_blank" rel="noopener noreferrer">Open</a>{/if}
+											</li>
+										{/each}
+									</ul>
+								{/if}
+							</div>
+						</li>
+					{/if}
 				{/each}
 			</ul>
 		{/each}
-		{#if !report.linksChecked}<p class="muted psc-detail">Links weren't visited. Use Check links to find broken pages.</p>{/if}
+		{#if !report.linksChecked}<p class="muted psc-detail">Links weren't visited yet. They're checked on their own; Check links runs it now.</p>{/if}
 		{#if report.blocks && anyway}
-			<label class="psc-anyway">
-				<input type="checkbox" name="send_anyway" value="1" bind:checked={sendAnyway} />
-				Send anyway. I've read the {report.blocks} blocking problem{report.blocks === 1 ? '' : 's'} above.
-			</label>
+			{#if mayOverride}
+				<label class="psc-anyway">
+					<input type="checkbox" name="send_anyway" value="1" bind:checked={sendAnyway} />
+					Send anyway. I've read the {report.blocks} blocking problem{report.blocks === 1 ? '' : 's'} above.
+				</label>
+			{:else}
+				<p class="muted psc-detail">Fix the blocking problem{report.blocks === 1 ? '' : 's'} to send. Only an admin can send anyway, when Settings → General → Pre-send checks allows it.</p>
+			{/if}
 		{/if}
 	{/if}
 </section>
@@ -188,6 +238,28 @@
 	}
 	.psc-body .psc-detail {
 		margin: 0;
+	}
+	.psc-ago {
+		font-size: var(--size-xs);
+		line-height: var(--line-xs);
+		letter-spacing: var(--letter-spacing-xs);
+		align-self: center;
+	}
+	.psc-open {
+		margin-left: var(--space-xs);
+		font-size: var(--size-xs);
+		line-height: var(--line-xs);
+	}
+	.linklike {
+		background: none;
+		border: 0;
+		padding: 0;
+		min-height: 0;
+		font: inherit;
+		color: var(--text);
+		text-decoration: underline;
+		text-decoration-color: var(--accent);
+		cursor: pointer;
 	}
 	.psc-items code {
 		font-size: var(--size-xs);

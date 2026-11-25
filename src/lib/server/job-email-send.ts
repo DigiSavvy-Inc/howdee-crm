@@ -10,6 +10,7 @@
 // recorded, not retried.
 
 import { sendCampaignEmail } from './send';
+import { mailSetup } from './mail';
 import { fromAllowed, getSettings } from './settings';
 import { resolveEmailRecipients, reviewToAddress, type EmailMessage, type EmailOutcome, type EmailSelection, type JobEmailSender } from './ai/jobs-email';
 
@@ -38,7 +39,8 @@ export async function sendJobEmail(
 	if (!from) return fail('No sender configured: set REVIEW_FROM or Settings → General → Default From.');
 	if (!EMAIL_RE.test(from)) return fail(`${env.REVIEW_FROM ? 'REVIEW_FROM' : 'Default From'} is not an email address.`);
 	if (!fromAllowed(from, settings.approved_senders)) return fail(`From ${from} is not in Settings → Approved senders.`);
-	if (!env.POSTMARK_TOKEN) return fail('POSTMARK_TOKEN is not set.');
+	const { provider: mail, creds } = await mailSetup(db, env);
+	if (!mail) return fail(creds.postmark.tokenError ?? 'POSTMARK_TOKEN is not set.');
 	const { addresses } = await resolveEmailRecipients(db, sel, reviewToAddress(env, settings.default_from));
 	if (!addresses.length) return fail('No recipient has an email address (admins need one on their user record).');
 
@@ -52,7 +54,7 @@ export async function sendJobEmail(
 	const campaignId = campaign!.id;
 	const once = () =>
 		deliver(db, {
-			token: env.POSTMARK_TOKEN!,
+			provider: mail,
 			secret: env.SESSION_SECRET || 'unused',
 			baseUrl,
 			campaignId,
@@ -61,7 +63,8 @@ export async function sendJobEmail(
 			htmlTemplate: msg.html,
 			textTemplate: msg.text,
 			from,
-			stream: env.POSTMARK_STREAM_TX || 'outbound',
+			stream: mail.streams.transactional,
+			streamKind: 'transactional',
 			trackOpens: false,
 			trackLinks: 'None',
 			unsubscribe: false,

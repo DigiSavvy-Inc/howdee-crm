@@ -100,7 +100,29 @@ export const load: PageServerLoad = async (event) => {
 	).results;
 	const recipeStages = (await db.prepare('SELECT id, name FROM pipeline_stages ORDER BY position').all<{ id: number; name: string }>()).results;
 
+	// #714: a suggestion's "Move to an automation" step (`?enroll_list=<group>`): pick an active
+	// automation, then its Enroll contacts dialog opens with the group picked. Nothing enrolls here.
+	const enrollListId = Number(event.url.searchParams.get('enroll_list')) || 0;
+	let enrollPick: { group: { id: number; name: string; kind: string }; automations: { id: number; name: string }[] } | null = null;
+	if (enrollListId > 0) {
+		const group = await db
+			.prepare("SELECT id, name, kind FROM lists WHERE id = ? AND kind IN ('list', 'segment', 'tag') AND archived_at IS NULL")
+			.bind(enrollListId)
+			.first<{ id: number; name: string; kind: string }>();
+		if (group) {
+			const active = await db
+				.prepare(
+					`SELECT a.id, a.name FROM automations a
+					  WHERE a.status = 'active' AND EXISTS (SELECT 1 FROM automation_steps s WHERE s.automation_id = a.id)
+					  ORDER BY a.name COLLATE NOCASE`
+				)
+				.all<{ id: number; name: string }>();
+			enrollPick = { group, automations: active.results };
+		}
+	}
+
 	return {
+		enrollPick,
 		recipes,
 		recipeLists,
 		recipeStages,

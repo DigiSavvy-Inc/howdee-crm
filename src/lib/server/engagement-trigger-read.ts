@@ -6,6 +6,7 @@ import { configEmailIds, isEngagementKind, parseEngagementConfig } from '$lib/en
 import { extractLinks } from '$lib/presend-checks';
 import { stepNumbers } from '$lib/automation-action-labels';
 import { CLICK_LINK_SQL } from './event-detail';
+import { containsSql } from './sql-match';
 
 export type TriggerEmailNames = { campaigns: { id: number; subject: string }[]; steps: { id: number; label: string }[] };
 
@@ -57,17 +58,18 @@ export const TRIGGER_EMAIL_LIMIT = 50;
  * steps grouped by automation. `q` narrows by subject / automation name; ≤ 50 in total.
  */
 export async function triggerEmailOptions(db: D1Database, automationId: number, q = ''): Promise<TriggerEmailOption[]> {
-	const like = `%${q.trim().replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
+	// #485: instr, not LIKE (D1 caps LIKE patterns at 50 bytes; subjects run long).
+	const text = q.trim();
 	const campaigns = (
 		await db
 			.prepare(
 				`SELECT id, subject, status, COALESCE(sent_at, scheduled_at, created_at) AS at FROM campaigns
 				 WHERE automation_step_id IS NULL AND status IN ('sent', 'sending', 'scheduled')
 				   AND (list_id IS NOT NULL OR EXISTS (SELECT 1 FROM campaign_audiences ca WHERE ca.campaign_id = campaigns.id))
-				   AND COALESCE(subject, '') LIKE ? ESCAPE '\\'
+				   AND ${containsSql("COALESCE(subject, '')")}
 				 ORDER BY at DESC, id DESC LIMIT ?`
 			)
-			.bind(like, TRIGGER_EMAIL_LIMIT)
+			.bind(text, TRIGGER_EMAIL_LIMIT)
 			.all<{ id: number; subject: string | null; status: string; at: string | null }>()
 	).results;
 	const out: TriggerEmailOption[] = campaigns.map((c) => ({
@@ -100,10 +102,10 @@ export async function triggerEmailOptions(db: D1Database, automationId: number, 
 				.prepare(
 					`SELECT s.id, s.subject, a.name AS automation_name FROM automation_steps s JOIN automations a ON a.id = s.automation_id
 					 WHERE s.type = 'email' AND s.automation_id != ?
-					   AND (COALESCE(s.subject, '') LIKE ? ESCAPE '\\' OR a.name LIKE ? ESCAPE '\\')
+					   AND (${containsSql("COALESCE(s.subject, '')")} OR ${containsSql('a.name')})
 					 ORDER BY a.name COLLATE NOCASE, s.automation_id, s.position, s.id LIMIT ?`
 				)
-				.bind(automationId, like, like, room)
+				.bind(automationId, text, text, room)
 				.all<{ id: number; subject: string | null; automation_name: string }>()
 		).results;
 		for (const s of others) out.push({ kind: 'step', id: s.id, label: s.subject || 'Untitled email', group: s.automation_name, own: false });

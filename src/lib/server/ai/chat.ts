@@ -12,6 +12,7 @@ import { json, type RequestEvent } from '@sveltejs/kit';
 import { effortFor, supportsTools, type Effort, type ModelInfo } from '$lib/ai-models';
 import { getBranding } from '../branding';
 import { getTimezone } from '../settings';
+import { resolvePostmarkCreds } from '../mail/config';
 import { actionForUser, cancelPendingForThread, cardOf, resolvePending, undoAction } from './actions';
 import { availability, codeAllowedFor, configModelInfo, featureModel, getAssistantConfig, modelKeyProblem, spendCheck, type AssistantConfig } from './config';
 import { providerFor } from './providers';
@@ -39,9 +40,9 @@ function baseUrlOf(event: RequestEvent): Promise<string> {
 }
 
 /** #322: the same Postmark credentials the contacts bulk bar passes (suppress + resubscribe guard). */
-function postmarkOf(event: RequestEvent): ToolContext['postmark'] {
-	const env = event.platform?.env;
-	return { token: env?.POSTMARK_TOKEN, stream: env?.POSTMARK_STREAM, txStream: env?.POSTMARK_STREAM_TX };
+async function postmarkOf(event: RequestEvent): Promise<ToolContext['postmark']> {
+	// #700: Settings → Sending's Postmark token and streams win over the env (plain data, no sending code).
+	return resolvePostmarkCreds(event.platform?.env?.DB, event.platform?.env);
 }
 
 function todayIn(tz: string, now: Date): string {
@@ -100,7 +101,7 @@ async function streamTurn(
 				messages: history,
 				// #322 addendum: delete_contacts only while Settings → Assistant → Permissions allows it.
 				tools: chatTools(cfg),
-				ctx: { db, user, baseUrl, now, threadId, postmark: postmarkOf(event), ai: { provider, model, effort } },
+				ctx: { db, user, baseUrl, now, threadId, postmark: await postmarkOf(event), ai: { provider, model, effort } },
 				emit: send,
 				signal: abort.signal,
 				persist: async (m) => {
@@ -213,7 +214,7 @@ export async function handleAction(event: RequestEvent, opts: { fetch?: typeof f
 		now: new Date(),
 		threadId: row.thread_id,
 		messageId: row.message_id,
-		postmark: postmarkOf(event)
+		postmark: await postmarkOf(event)
 	};
 
 	if (op === 'undo') {

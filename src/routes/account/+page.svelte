@@ -76,6 +76,24 @@
 	</form>
 </section>
 
+<!-- #715: hide the suggestions panel for yourself only. -->
+<section class="card" id="suggestions">
+	<h2>Suggestions panel</h2>
+	<p class="muted">
+		The panel at the bottom right suggests who to contact and what to send next, when an admin has turned Suggestions
+		on. Turning it off hides the panel and its count for you only; the suggestions still exist for the rest of the team.
+	</p>
+	{#if form && 'panelError' in form && form.panelError}<p class="notice err" role="alert">{form.panelError}</p>{/if}
+	{#if form && 'panelOk' in form && form.panelOk}<p class="notice ok" role="status">{form.panelOk}</p>{/if}
+	<form method="POST" action="?/suggestionsPanel" use:enhance class="panel-form">
+		<label class="check">
+			<input type="checkbox" name="show" value="1" checked={data.suggestionsPanel} />
+			Show the suggestions panel
+		</label>
+		<button type="submit" class="small">Save</button>
+	</form>
+</section>
+
 <section class="card">
 	<h2>Password</h2>
 	{#if a.mustChange}
@@ -132,6 +150,8 @@
 	.email-form { display: flex; flex-direction: column; gap: var(--space-s); max-width: 360px; }
 	.email-form label { display: flex; flex-direction: column; gap: var(--space-xxs); font-size: var(--size-s); line-height: var(--line-s); letter-spacing: var(--letter-spacing-s); }
 	.inline { margin: 0 0 var(--space-s); }
+	.panel-form { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-s); }
+	.check { display: inline-flex; align-items: center; gap: var(--space-xs); font-size: var(--size-s); line-height: var(--line-s); letter-spacing: var(--letter-spacing-s); }
 	.small { padding: var(--space-xxs) var(--space-xs); font-size: var(--size-xs); line-height: var(--line-xs); letter-spacing: var(--letter-spacing-xs); }
 	dd { margin: 0; }
 	.badge.admin {

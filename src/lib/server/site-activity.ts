@@ -2,6 +2,8 @@
 // rows merged into the Activity timeline, and the Site activity card's summary. Ingest,
 // identity and pruning live in site-tracking.ts / track-token.ts.
 
+import { containsSql } from './sql-match';
+
 export type TimelineItem = { kind: string; at: string; campaign_id: number | null; label: string; url: string | null };
 
 /** Newest first, rows without a time dropped, cut to `limit`. Stable for equal times. */
@@ -123,13 +125,13 @@ export async function contactMatchesVisited(
 	c: { mode: 'page' | 'event'; match: string; days: number }
 ): Promise<boolean> {
 	const page = c.mode === 'page';
-	const match = page ? `%${c.match.replace(/[\\%_]/g, (m) => `\\${m}`)}%` : c.match;
-	const binds: unknown[] = [contactId, page ? 'pageview' : 'event', match];
+	// #485: the path match is instr, not LIKE (D1 caps LIKE patterns at 50 bytes).
+	const binds: unknown[] = [contactId, page ? 'pageview' : 'event', c.match];
 	if (c.days > 0) binds.push(`-${c.days} days`);
 	const row = await db
 		.prepare(
 			`SELECT 1 FROM site_events
-			 WHERE contact_id = ? AND kind = ? AND ${page ? `COALESCE(path, '') LIKE ? ESCAPE '\\'` : 'name = ?'}
+			 WHERE contact_id = ? AND kind = ? AND ${page ? containsSql("COALESCE(path, '')") : 'name = ?'}
 			 ${c.days > 0 ? `AND occurred_at >= datetime('now', ?)` : ''} LIMIT 1`
 		)
 		.bind(...binds)

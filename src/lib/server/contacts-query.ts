@@ -21,6 +21,7 @@ import { awaitingContactIds } from './conversations';
 import { scoreBandClause, scoreValueClause } from './scoring/query';
 import { formSubmittedClause } from './form-reads';
 import { activeSubscriptionSql } from './active-audience';
+import { containsSql } from './sql-match';
 
 // pending = double opt-in not confirmed yet (#510). #705: `active` = subscribed or pending — the
 // default outside the Archived view; `all` (an explicit `status=all`) adds the unsubscribed.
@@ -348,11 +349,6 @@ export function contactsOrder(src: Source): { sort: string; dir: 'ASC' | 'DESC';
 	return { sort, dir, orderExpr: `(${col} IS NULL OR ${col} = '') ASC, ${col} ${dir}, id DESC` };
 }
 
-/** `%term%` with LIKE wildcards in the user's text escaped (paired with ESCAPE '\'). */
-function like(term: string): string {
-	return `%${term.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
-}
-
 /**
  * SQL fragments over `contacts` alone (no alias, no join) — a full `WHERE ...` clause ready
  * to splice after `FROM contacts` (`''` only for `archived: 'all'` with nothing else set).
@@ -376,12 +372,12 @@ export function contactsWhere(f: ContactsFilter): { where: string; params: (stri
 	if (f.status === 'unsubscribed') clauses.push('subscribed = 0 AND confirm_pending = 0');
 	if (f.status === 'pending') clauses.push('subscribed = 0 AND confirm_pending = 1');
 	if (f.source) {
-		clauses.push(`COALESCE(source, '') LIKE ? ESCAPE '\\'`);
-		params.push(like(f.source));
+		clauses.push(containsSql("COALESCE(source, '')")); // #485: instr, no LIKE pattern cap
+		params.push(f.source);
 	}
 	if (f.company) {
-		clauses.push(`COALESCE(company, '') LIKE ? ESCAPE '\\'`);
-		params.push(like(f.company));
+		clauses.push(containsSql("COALESCE(company, '')"));
+		params.push(f.company);
 	}
 	if (f.companyId) {
 		clauses.push('company_id = ?');
@@ -412,9 +408,9 @@ export function contactsWhere(f: ContactsFilter): { where: string; params: (stri
 		const window = f.visitedDays ? ` AND se.occurred_at >= datetime('now', ?)` : '';
 		clauses.push(
 			`EXISTS (SELECT 1 FROM site_events se WHERE se.contact_id = contacts.id AND se.kind = 'pageview'
-			   AND COALESCE(se.path, '') LIKE ? ESCAPE '\\'${window})`
+			   AND ${containsSql("COALESCE(se.path, '')")}${window})`
 		);
-		params.push(like(f.visited));
+		params.push(f.visited);
 		if (f.visitedDays) params.push(`-${f.visitedDays} days`);
 	}
 	if (f.site === 'any') clauses.push('EXISTS (SELECT 1 FROM site_events se WHERE se.contact_id = contacts.id)');

@@ -18,6 +18,8 @@ export type Check = {
 	/** The offending links / tags / images, capped at 10. */
 	items?: string[];
 	href?: string;
+	/** #479: the URLs behind `items` (live link checks), for the panel's Open buttons. */
+	urls?: string[];
 };
 
 export type ChecksReport = {
@@ -25,8 +27,12 @@ export type ChecksReport = {
 	blocks: number;
 	warns: number;
 	passes: number;
-	/** True when the optional "Check links" (live HEAD/GET) ran. */
+	/** True when the live link check (HEAD/GET) ran. */
 	linksChecked: boolean;
+	/** #479: when the report was made (ISO), for "Checked 2 min ago". */
+	checkedAt?: string;
+	/** #479: a held send released with "Send anyway": `@login at <UTC>` (the lasting record). */
+	overriddenBy?: string;
 };
 
 export const CATEGORY_LABELS: Record<CheckCategory, string> = {
@@ -591,21 +597,176 @@ export function topicSkipCheck(skipped: number, topic: string): Check {
 
 // ---------------------------------------------------------------- live link check results
 
-export type LinkProbe = { url: string; status: number | null; finalUrl?: string; error?: string; login?: boolean };
+export type LinkProbe = {
+	url: string;
+	status: number | null;
+	finalUrl?: string;
+	error?: string;
+	login?: boolean;
+	/** #479: why there's no usable status — refused by the SSRF guard, DNS failure, no answer
+	 *  (timeout / network), a redirect loop, more than 3 hops. */
+	kind?: 'blocked' | 'dns' | 'timeout' | 'loop' | 'hops';
+	/** #479: the first try was a 5xx / no answer; this is the second. */
+	retried?: boolean;
+};
 
-export function linkProbeChecks(probes: LinkProbe[], skipped: number): Check[] {
-	const broken = probes.filter((p) => p.status === 404 || p.status === 410);
-	const flaky = probes.filter((p) => !broken.includes(p) && (p.status === null || p.status >= 400));
-	const login = probes.filter((p) => p.login && !broken.includes(p) && !flaky.includes(p));
+/** #479: how a probed link is judged, by its FINAL response after redirects. */
+export type LinkClass = 'ok' | 'broken' | 'server' | 'dns' | 'timeout' | 'refused' | 'login' | 'redirects' | 'blocked' | 'other';
+
+export function classifyProbe(p: LinkProbe): LinkClass {
+	if (p.kind === 'blocked') return 'blocked';
+	if (p.kind === 'dns') return 'dns';
+	if (p.kind === 'loop' || p.kind === 'hops') return 'redirects';
+	if (p.status === null) return 'timeout';
+	if (p.status === 404 || p.status === 410) return 'broken';
+	// #479: a 530 (Cloudflare: no answer from the origin) is a server failure, not a DNS one.
+	if ((p.status >= 500 && p.status <= 504) || p.status === 530) return 'server';
+	if (p.status === 401 || p.status === 403 || p.status === 429) return 'refused';
+	if (p.status >= 400) return 'other';
+	if (p.login) return 'login';
+	return 'ok';
+}
+
+/** #479: a merge-tag href checked as it fills in for a few sample recipients. */
+export type MergeLinkSample = { href: string; samples: number; failed: number };
+
+export type LinkProbeExtras = {
+	/** Link text per URL ("where it appears"). */
+	where?: Map<string, string>;
+	/** Not checked before the time or fetch budget ran out ("not checked yet"). */
+	unfinished?: string[];
+	/** Merge-tag links never checked: no sample contact gave a usable web address (or the
+	 *  samples didn't fit in the budget). */
+	unsampled?: number;
+	merge?: MergeLinkSample[];
+	/** #479: merge-tag links the scheduled-send tick left alone (checked when composing). */
+	mergeAtCompose?: number;
+};
+
+/** #479: the info row for merge-tag links the scheduled-send tick doesn't check. */
+export const MERGE_AT_COMPOSE_ID = 'links.live_merge_compose';
+
+/** The cap in linkProbeChecks' "not checked" line (link-check.ts LINK_CHECK_MAX). */
+export const LIVE_LINK_CAP = 60;
+
+const plural = (n: number) => (n === 1 ? '' : 's');
+
+export function linkProbeChecks(probes: LinkProbe[], skipped: number, extras: LinkProbeExtras = {}): Check[] {
+	const by = new Map<LinkClass, LinkProbe[]>();
+	for (const p of probes) {
+		const k = classifyProbe(p);
+		if (!by.has(k)) by.set(k, []);
+		by.get(k)!.push(p);
+	}
+	const get = (...ks: LinkClass[]) => ks.flatMap((k) => by.get(k) ?? []);
+	const where = (p: LinkProbe) => {
+		const t = extras.where?.get(p.url);
+		return t ? ` · “${t.slice(0, 40)}”` : '';
+	};
+	const line = (p: LinkProbe, what: string) => `${p.url} — ${what}${where(p)}`;
+	const row = (id: string, level: CheckLevel, list: LinkProbe[], title: string, what: (p: LinkProbe) => string, detail?: string): Check => ({
+		id,
+		category: 'links',
+		level,
+		title,
+		...(detail ? { detail } : {}),
+		items: cap(list.map((p) => line(p, what(p)))),
+		urls: [...new Set(list.map((p) => p.url))].slice(0, ITEMS_CAP)
+	});
+	const status = (p: LinkProbe) => (p.status === 530 ? '530 (no answer from the host)' : String(p.status ?? p.error ?? 'no answer'));
 	const out: Check[] = [];
-	const extra = skipped ? ` ${skipped} more not checked (limit 30).` : '';
-	if (broken.length)
-		out.push({ id: 'links.live_broken', category: 'links', level: 'block', title: `${broken.length} link${broken.length === 1 ? '' : 's'} not found`, items: cap(broken.map((p) => `${p.url} — ${p.status}`)) });
+
+	const broken = get('broken');
+	if (broken.length) out.push(row('links.live_broken', 'block', broken, `${broken.length} link${plural(broken.length)} not found`, status, 'The page is gone (404 / 410).'));
+	const server = get('server');
+	if (server.length)
+		out.push(row('links.live_server', 'block', server, `${server.length} link${plural(server.length)} failing on the site's server`, status, 'A 5xx error (or no answer from the host), again on a second try 2 seconds later.'));
+	const dns = get('dns');
+	if (dns.length) out.push(row('links.live_dns', 'block', dns, `${dns.length} link${plural(dns.length)} to a domain that doesn't exist`, () => 'host not found', 'Check the spelling of the domain.'));
+	const flaky = get('timeout', 'other');
 	if (flaky.length)
-		out.push({ id: 'links.live_error', category: 'links', level: 'warn', title: `${flaky.length} link${flaky.length === 1 ? '' : 's'} answered with an error`, detail: 'Some sites refuse automated checks; open these to make sure.', items: cap(flaky.map((p) => `${p.url} — ${p.status ?? p.error ?? 'no answer'}`)) });
-	if (login.length)
-		out.push({ id: 'links.live_login', category: 'links', level: 'warn', title: `${login.length} link${login.length === 1 ? '' : 's'} redirect to a login page`, items: cap(login.map((p) => `${p.url} → ${p.finalUrl}`)) });
-	if (!out.length) out.push({ id: 'links.live', category: 'links', level: 'pass', title: `${probes.length} link${probes.length === 1 ? '' : 's'} checked, all reachable`, detail: extra.trim() || undefined });
-	else if (extra) out[out.length - 1].detail = `${out[out.length - 1].detail ?? ''}${extra}`.trim();
+		out.push(row('links.live_error', 'warn', flaky, `${flaky.length} link${plural(flaky.length)} didn't answer properly`, status, 'No answer (twice), or an unusual error. It could be our side; open these to make sure.'));
+	const refused = get('refused');
+	if (refused.length)
+		out.push(row('links.live_refused', 'warn', refused, `${refused.length} link${plural(refused.length)} refused the automated check`, status, 'Bot protection often refuses checks like this one (401 / 403 / 429). Open it to make sure.'));
+	const login = get('login');
+	if (login.length) out.push(row('links.live_login', 'warn', login, `${login.length} link${plural(login.length)} redirect to a login page`, (p) => `→ ${p.finalUrl}`));
+	const redirects = get('redirects');
+	if (redirects.length) out.push(row('links.live_redirects', 'warn', redirects, `${redirects.length} link${plural(redirects.length)} redirect too many times`, (p) => p.error ?? 'redirects', 'A redirect loop, or more than 3 hops.'));
+
+	const failedMerge = (extras.merge ?? []).filter((m) => m.failed > 0);
+	if (failedMerge.length)
+		out.push({
+			id: 'links.live_merge',
+			category: 'links',
+			level: 'warn',
+			title: "Some contacts' links may not work",
+			detail: 'Links built from merge tags failed for some sample recipients.',
+			items: cap(failedMerge.map((m) => `${m.href} — failed for ${m.failed} of ${m.samples} sample${plural(m.samples)}`))
+		});
+
+	const unfinished = extras.unfinished ?? [];
+	if (unfinished.length)
+		out.push({
+			id: 'links.live_unfinished',
+			category: 'links',
+			level: 'warn',
+			title: `${unfinished.length} link${plural(unfinished.length)} not checked yet`,
+			detail: 'The check ran out of time or out of its request budget before reaching these. Under Strict a scheduled send waits for them; otherwise they do not stop a send.',
+			items: cap(unfinished),
+			urls: unfinished.slice(0, ITEMS_CAP)
+		});
+
+	// #479: links over the cap and merge-tag links with no usable sample were never checked, so
+	// this row warns (it must not look checked). Links the SSRF guard refuses are only info.
+	const blocked = get('blocked');
+	const unsampled = extras.unsampled ?? 0;
+	const neverChecked = skipped + unsampled;
+	const notChecked = [
+		...(skipped ? [`${skipped} more not checked (limit ${LIVE_LINK_CAP})`] : []),
+		...(unsampled ? [`${unsampled} merge-tag link${plural(unsampled)} not checked: no sample contact gives a usable web address`] : []),
+		...(blocked.length ? [`${blocked.length} skipped: not a public web address (${[...new Set(blocked.map((p) => (p.error ?? '').replace(/^blocked: /, '')))].join(', ')})`] : [])
+	];
+	if (notChecked.length)
+		out.push({
+			id: 'links.live_skipped',
+			category: 'links',
+			level: neverChecked ? 'warn' : 'pass',
+			title: neverChecked ? `${neverChecked} link${plural(neverChecked)} not checked` : 'Some links were skipped',
+			...(neverChecked ? { detail: 'These links were not visited. Open them to make sure they work.' } : {}),
+			items: notChecked
+		});
+
+	// #479: the scheduled-send tick doesn't fill in merge-tag links. An info row (never a warning
+	// or a block, under any policy): they were checked for sample contacts when composing.
+	const atCompose = extras.mergeAtCompose ?? 0;
+	if (atCompose)
+		out.push({
+			id: MERGE_AT_COMPOSE_ID,
+			category: 'links',
+			level: 'pass',
+			title: `${atCompose} merge-tag link${plural(atCompose)} checked when composing, not at send time`,
+			detail: 'Links built from merge tags are checked for a few sample contacts in the compose panel. The send-time check leaves them out.'
+		});
+
+	const ok = get('ok');
+	// The summary line shows when nothing that WAS checked failed (links not checked have their own rows).
+	if (out.every((c) => c.level === 'pass' || c.id === 'links.live_skipped' || c.id === 'links.live_unfinished'))
+		out.unshift({
+			id: 'links.live',
+			category: 'links',
+			level: 'pass',
+			title: probes.length - blocked.length ? `${ok.length} link${plural(ok.length)} checked, all working` : 'No links to check'
+		});
 	return out;
+}
+
+/** #479: at schedule time a live-link failure is only a warning — a page that goes live at the
+ *  send time is common. It's checked again when the send fires. */
+export const SCHEDULE_LINK_NOTE = "This link fails now. It'll be checked again at send time.";
+
+export function softenLiveLinks(checks: Check[]): Check[] {
+	return checks.map((c) =>
+		c.level === 'block' && c.id.startsWith('links.live_') ? { ...c, level: 'warn' as const, detail: `${SCHEDULE_LINK_NOTE}${c.detail ? ` ${c.detail}` : ''}` } : c
+	);
 }

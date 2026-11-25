@@ -21,6 +21,7 @@ import {
 } from '$lib/server/groups-bulk';
 import { parseRules } from '$lib/server/segment-query';
 import { activeContactSql } from '$lib/server/active-audience';
+import { containsSql } from '$lib/server/sql-match';
 
 const KINDS: Record<string, { label: string; plural: string }> = {
 	list: { label: 'List', plural: 'Lists' },
@@ -65,9 +66,9 @@ export const load: PageServerLoad = async (event) => {
 			        (SELECT MAX(COALESCE(c.sent_at, c.scheduled_at, c.created_at)) FROM campaigns c WHERE c.list_id = l.id) AS last_used,
 			        (SELECT COUNT(*) FROM campaigns c WHERE c.list_id = l.id) AS campaign_count
 			 FROM lists l
-			 WHERE l.kind = ? AND (l.archived_at IS NULL) = ? AND (? = '' OR l.name LIKE ? ESCAPE '\\')`
+			 WHERE l.kind = ? AND (l.archived_at IS NULL) = ? AND (? = '' OR ${containsSql('l.name')})`
 		)
-		.bind(kind, archived ? 0 : 1, q, `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`)
+		.bind(kind, archived ? 0 : 1, q, q) // #485: instr, no LIKE pattern cap
 		.all<GroupRow>();
 
 	const groups = [];

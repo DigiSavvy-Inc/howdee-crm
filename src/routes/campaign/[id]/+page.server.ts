@@ -3,7 +3,8 @@ import { getArchiveSettings, isArchivable, publishIssue, unpublishIssue } from '
 import { ARCHIVE_PATH } from '$lib/newsletter-archive';
 import { error, fail, redirect, type Actions } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { getDB, env } from '$lib/server/db';
+import { getDB, env, FINISH_SETUP_SENDING, mailToken, sendingUnconfigured } from '$lib/server/db';
+import { mailSetup } from '$lib/server/mail';
 import { publicBaseUrlFor } from '$lib/server/public-url';
 import { getSettings, fromAllowed, getTimezone, DEFAULT_TIMEZONE } from '$lib/server/settings';
 import { applyWeekdayOnly, parseZonedLocal, formatLocal, toZonedLocalInput } from '$lib/server/businessdays';
@@ -19,6 +20,9 @@ import { bestTimeLift } from '$lib/server/engagement-query';
 import { deleteDraft, reopenAsDraft, duplicateAsDraft } from '$lib/server/campaign-drafts';
 import { campaignLinks, campaignReplies, campaignScannerFetches } from '$lib/server/campaign-read';
 import { releaseHeldCampaign } from '$lib/server/deliverability-alerts';
+import { preflightHoldRefusal, recheckHeld, sendAnywayHeld, NOT_PREFLIGHT_HOLD_MESSAGE } from '$lib/server/preflight';
+import { getPresendPolicy } from '$lib/server/presend-policy';
+import { canSendAnyway, heldSummary, parseReport } from '$lib/presend-policy';
 import { campaignActivity } from '$lib/server/campaign-activity';
 import { parseActivityFilter, parseActivityRows } from '$lib/campaign-activity';
 
@@ -242,7 +246,7 @@ export const load: PageServerLoad = async (event) => {
 	const nonOpeners = campaign.status === 'sent' ? await nonOpenerCount(db, id) : 0;
 
 	// Who did this send go to? (#118) — list name, else automation name, else a sample of
-	// `recipients` rows (direct sends, SEO Snapshot reviews, or anything else list-less).
+	// `recipients` rows (direct sends, review emails, or anything else list-less).
 	const audience = await loadAudience(db, id);
 
 	// Engagement bar (#161): who interacted vs. who didn't, unique per recipient.
@@ -286,6 +290,13 @@ export const load: PageServerLoad = async (event) => {
 		bestTime,
 		resendSchedule,
 		passes: passes && passes.resend.sent > 0 ? passes : null,
+		// #479: the last fire-time pre-send check (a held send shows exactly what failed).
+		preflight: await (async () => {
+			const report = parseReport(campaign.preflight_report as string | null);
+			if (!report) return null;
+			const policy = await getPresendPolicy(db);
+			return { report, summary: heldSummary(report), checkedAt: campaign.preflight_checked_at as string | null, canOverride: canSendAnyway(policy, event.locals?.user?.role) };
+		})(),
 		// #481: newsletter archive state (actions are admin-only).
 		archive: {
 			eligible: isArchivable(campaign as never),
@@ -347,6 +358,31 @@ export const actions: Actions = {
 		const ok = await releaseHeldCampaign(getDB(event), Number(event.params.id));
 		if (!ok) return fail(400, { error: 'This campaign is not held.' });
 		return { ok: true, released: true };
+	},
+
+	// #479: a send held by its pre-send checks. Re-check now (anyone signed in): passing releases
+	// it and the tick sends it (within a minute when it's past due); failing keeps it held with
+	// the new report. Send anyway: admins, when Settings → General → Pre-send checks allows
+	// overrides; logged as who did it. Neither sends from here. Both act only on a pre-send hold
+	// (held_reason = 'preflight', in the SQL too) and refuse a deliverability hold, which only
+	// an admin's Release (above) lifts.
+	recheckHold: async (event) => {
+		const res = await recheckHeld(getDB(event), Number(event.params.id));
+		if (!res.ok) return fail(400, { error: res.error });
+		return res.released ? { ok: true, recheckPassed: true } : { ok: true, recheckFailed: heldSummary(res.report) };
+	},
+	sendAnywayHold: async (event) => {
+		const db = getDB(event);
+		const user = event.locals?.user;
+		const policy = await getPresendPolicy(db);
+		if (!canSendAnyway(policy, user?.role)) {
+			return fail(403, { error: policy.override === 'none' ? 'Overrides are off in Settings → General → Pre-send checks.' : 'Only an admin can send a held campaign anyway.' });
+		}
+		if (!user?.id) return fail(403, { error: 'Only an admin can send a held campaign anyway.' });
+		const login = user.github_login || `user ${user.id}`;
+		const id = Number(event.params.id);
+		if (!(await sendAnywayHeld(db, id, { login, userId: user.id }))) return fail(400, { error: (await preflightHoldRefusal(db, id)) ?? NOT_PREFLIGHT_HOLD_MESSAGE });
+		return { ok: true, sentAnyway: true };
 	},
 
 	// #481: Publish to / Remove from the newsletter archive — sent broadcasts only, admins only.
@@ -429,8 +465,12 @@ export const actions: Actions = {
 				return fail(400, { error: "Everyone opened this one — nothing to resend." });
 			}
 
-			const token = env(event, 'POSTMARK_TOKEN');
-			const stream = env(event, 'POSTMARK_STREAM');
+			// #700: the active sending provider; the token / stream still fall back to the env.
+			const { provider: mail, creds: mailCreds } = await mailSetup(db, event.platform?.env);
+			// #731: no provider yet → the form's error line (before any claim), not an error page.
+			if (sendingUnconfigured(mail, mailCreds)) return fail(409, { error: FINISH_SETUP_SENDING });
+			const token = mailToken(event, mailCreds);
+			const stream = mailCreds.postmark.stream || env(event, 'POSTMARK_STREAM');
 			const secret = env(event, 'SESSION_SECRET');
 			const baseUrl = await publicBaseUrlFor(event);
 
@@ -443,7 +483,7 @@ export const actions: Actions = {
 					{ id, subject: original.subject, body_html: original.body_html, body_text: original.body_text, from_email: original.from_email },
 					subject,
 					recipients,
-					{ token, secret, baseUrl, stream, replyToInbound: event.platform?.env?.POSTMARK_INBOUND_ADDRESS || undefined }
+					{ token, provider: mail, secret, baseUrl, stream, replyToInbound: event.platform?.env?.POSTMARK_INBOUND_ADDRESS || undefined }
 				);
 			} finally {
 				if (editing) await db.prepare(`UPDATE campaigns SET resend_status = 'sent' WHERE id = ?`).bind(id).run();

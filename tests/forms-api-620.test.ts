@@ -139,6 +139,22 @@ describe('the form webhook', () => {
 		expect(row?.detail ?? '').not.toMatch(/webhook/);
 	});
 
+	it('sends the embedded form\'s host page as page_url, not the referrer (#656)', async () => {
+		const form = await makeForm((s) => {
+			s.settings.notify_webhook = 'https://hooks.example.com/form';
+		});
+		const rec = recorder();
+		const r = await handleSubmission(
+			db,
+			baseEnv,
+			form,
+			{ answers: { email: 'embedhook@forms.test' }, referrer: 'https://search.example.com/', pageUrl: 'https://site.test/pricing' },
+			ctx({ fetch: rec.fn })
+		);
+		expect(r.ok).toBe(true);
+		expect(JSON.parse(String(rec.calls[0].init.body)).page_url).toBe('https://site.test/pricing');
+	});
+
 	it('hands the work to waitUntil when the route has it', async () => {
 		const form = await makeForm((s) => {
 			s.settings.notify_webhook = 'https://hooks.example.com/form';
@@ -250,6 +266,26 @@ describe('GET /api/v1/forms and /forms/:id/submissions', () => {
 		expect((await submissionsGET(ev(`/api/v1/forms/${f.id}/submissions?since=garbage`, token, { id: String(f.id) }))).status).toBe(400);
 		expect((await submissionsGET(ev('/api/v1/forms/abc/submissions', token, { id: 'abc' }))).status).toBe(400);
 		expect((await submissionsGET(ev('/api/v1/forms/999999/submissions', token, { id: '999999' }))).status).toBe(404);
+	});
+
+	it('page_url: the stored host page of an embedded form wins, else the referrer (#656)', async () => {
+		const token = await makeKey('read');
+		const f = await makeForm();
+		const hosted = await recordSubmission(db, { form_id: f.id, form_version: 1, contact_id: null, email: 'hosted@forms.test', status: 'anonymous', answers: {}, referrer: 'https://site.test/contact' });
+		const embedded = await recordSubmission(db, {
+			form_id: f.id,
+			form_version: 1,
+			contact_id: null,
+			email: 'embed@forms.test',
+			status: 'anonymous',
+			answers: {},
+			referrer: 'https://search.example.com/',
+			page_url: 'https://site.test/pricing'
+		});
+		const b = await body(await submissionsGET(ev(`/api/v1/forms/${f.id}/submissions`, token, { id: String(f.id) })));
+		const byId = new Map(b.data.map((s: any) => [s.id, s]));
+		expect(byId.get(embedded)).toMatchObject({ page_url: 'https://site.test/pricing', referrer: 'https://search.example.com/' });
+		expect(byId.get(hosted)).toMatchObject({ page_url: 'https://site.test/contact', referrer: 'https://site.test/contact' });
 	});
 
 	it('parseSince', () => {

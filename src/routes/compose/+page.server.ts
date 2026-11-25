@@ -1,7 +1,8 @@
+import { readOpening } from '$lib/suggestions-panel';
 import { autoPublishOnSent, setArchiveAfterSend } from '$lib/server/newsletter-archive';
 import { fail, redirect, type Actions } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { getDB, env } from '$lib/server/db';
+import { getDB, env, FINISH_SETUP_SENDING, mailToken, sendingUnconfigured } from '$lib/server/db';
 import { publicBaseUrlFor } from '$lib/server/public-url';
 import { MERGE_TAGS, UNSUB_PLACEHOLDER } from '$lib/server/email';
 import { parseBlocks } from '$lib/blocks';
@@ -9,6 +10,7 @@ import type { TemplateRow } from '$lib/server/templates';
 import { readComposeBody, storedBlocks, bodyIsEmpty, bodyBlocksColumn, renderBody, renderBodyInTemplate } from '$lib/server/compose-body';
 import { getSignature } from '$lib/server/email-signature';
 import { sendCampaignEmail } from '$lib/server/send';
+import { mailSetup } from '$lib/server/mail';
 import { isEmail } from '$lib/csv';
 import { getSettings, fromAllowed, getTimezone, DEFAULT_TIMEZONE } from '$lib/server/settings';
 import { aiResendSubjectAvailable } from '$lib/server/ai-subject';
@@ -16,6 +18,8 @@ import { applyWeekdayOnly, parseZonedLocal, localParts } from '$lib/server/busin
 import { memberCount } from '$lib/server/segments';
 import { audienceFromForm, existingGroups, readAudience, recipientsForAudience, writeAudience } from '$lib/server/campaign-audience';
 import { runPresendChecks } from '$lib/server/presend-checks';
+import { getPresendPolicy } from '$lib/server/presend-policy';
+import { applyPolicy, canSendAnyway } from '$lib/presend-policy';
 import { resolveTopicId, topicRows } from '$lib/server/topics';
 import { parseTopicChoice, topicDisplay } from '$lib/topics';
 import { sendTestEmail } from '$lib/server/test-send';
@@ -199,6 +203,9 @@ async function saveDraft(db: D1Database, data: FormData, fallbackFrom: string) {
 	return { id: row!.id };
 }
 
+/** #714: the subject idea a suggestion's "Re-engage" step fills in (edit it before sending). */
+const REENGAGE_SUBJECT = 'Still want to hear from us?';
+
 export const load: PageServerLoad = async (event) => {
 	const db = getDB(event);
 	const rows = await db
@@ -214,8 +221,24 @@ export const load: PageServerLoad = async (event) => {
 		.all<{ id: number; name: string; kind: string; archived_at: string | null; recipients: number }>();
 
 	// Contact-page "Email this person" button deep-links into 1:1 mode.
-	const to = event.url.searchParams.get('to') ?? '';
+	let to = event.url.searchParams.get('to') ?? '';
 	const direct = event.url.searchParams.get('direct') === '1';
+	// #714: a suggestion's "Email them" opens 1:1 mode for a contact id (`?contact=`), and its
+	// draft opening (`?opening=`) becomes the first paragraph. Prefill only: nothing is saved.
+	const contactParam = Number(event.url.searchParams.get('contact')) || 0;
+	if (direct && !to && contactParam > 0) {
+		const c = await db.prepare('SELECT email FROM contacts WHERE id = ?').bind(contactParam).first<{ email: string }>();
+		to = c?.email ?? '';
+	}
+	const opening = readOpening(event.url.searchParams);
+	// #714: "Send a campaign" / "Re-engage" pick the group as the audience (`?include_id=`, live
+	// lists / segments / tags only) and, for Re-engage, a subject idea.
+	const prefillInclude = event.url.searchParams
+		.getAll('include_id')
+		.map(Number)
+		.filter((n) => Number.isInteger(n) && n > 0)
+		.slice(0, 20);
+	const reengage = event.url.searchParams.get('reengage') === '1';
 
 	// Start-from templates (#60) for broadcast sends.
 	const templates = await db
@@ -262,6 +285,12 @@ export const load: PageServerLoad = async (event) => {
 		mergeTags: MERGE_TAGS,
 		initialMode: direct ? 'direct' : 'campaign',
 		initialTo: to,
+		// #714: suggestion prefills (only when no draft is being edited).
+		// Compose's audience picker offers lists and segments; a tag id gets a note instead.
+		initialIncludeIds: draft ? [] : prefillInclude.filter((id) => withCounts.some((r) => r.id === id && !r.archived_at && (r.kind === 'list' || r.kind === 'segment'))),
+		prefillTags: draft ? [] : withCounts.filter((r) => prefillInclude.includes(r.id) && r.kind === 'tag' && !r.archived_at).map((r) => ({ id: r.id, name: r.name })),
+		initialSubject: draft || !reengage ? '' : REENGAGE_SUBJECT,
+		initialOpening: draft ? '' : opening,
 		draft,
 		// #246: "Suggest with Claude" on the auto-resend subject (toggle on + key set).
 		aiSubject: await aiResendSubjectAvailable(db, event.platform?.env)
@@ -291,8 +320,10 @@ export const actions: Actions = {
 		const preheader = String(data.get('preheader') ?? '').trim();
 		const isDirect = String(data.get('direct') ?? '') === '1';
 		const templateId = Number(data.get('template_id')) || 0;
+		// #731: the stand-in recipient is POSTMARK_FROM, else Settings → General → Default From.
 		const testTo =
-			String(data.get('test_to') ?? '').trim() || (event.platform?.env?.POSTMARK_FROM ?? '');
+			String(data.get('test_to') ?? '').trim() ||
+			(event.platform?.env?.POSTMARK_FROM?.trim() || (await getSettings(db)).default_from?.trim() || '');
 
 		if (!subject || !from || (bodyIsEmpty(body) && !templateId)) {
 			return fail(400, { testError: 'Add a subject, from address, and body before testing.' });
@@ -307,9 +338,18 @@ export const actions: Actions = {
 			}
 		}
 
+		const { provider: mail, creds } = await mailSetup(db, event.platform?.env);
+		// #731: no provider yet → the form's own error line, not an error page.
+		if (sendingUnconfigured(mail, creds)) return fail(409, { testError: FINISH_SETUP_SENDING });
 		const sent = await sendTestEmail(
 			db,
-			{ token: env(event, 'POSTMARK_TOKEN'), stream: env(event, 'POSTMARK_STREAM'), secret: env(event, 'SESSION_SECRET'), baseUrl: await publicBaseUrlFor(event) },
+			{
+				provider: mail,
+				token: mailToken(event, creds),
+				stream: creds.postmark.stream || env(event, 'POSTMARK_STREAM'),
+				secret: env(event, 'SESSION_SECRET'),
+				baseUrl: await publicBaseUrlFor(event)
+			},
 			{ from, to: testTo, subject, body, preheader, templateId, direct: isDirect }
 		);
 		if (!sent.ok) return fail(400, { testError: sent.error });
@@ -469,22 +509,40 @@ export const actions: Actions = {
 		const recipients = { results: recipientRows };
 
 		// #311: pre-send checks, enforced here and not only in the panel. A block (placeholder
-		// link, unknown merge tag, …) needs the explicit "Send anyway" tick.
-		const checks = await runPresendChecks(
-			db,
-			{ subject, preheader, body, templateId: templateId || null, audience, topicId: topic },
-			{ media: event.platform?.env?.MEDIA, recipients: recipientRows }
+		// link, unknown merge tag, …) needs the explicit "Send anyway" tick. #479: the live link
+		// check runs here too (the panel's result isn't trusted), with the policy from Settings →
+		// General → Pre-send checks applied. At schedule time a failing link only warns: it is
+		// checked again when the send fires. Only admins may override, and only when allowed.
+		const policy = await getPresendPolicy(db);
+		const checks = applyPolicy(
+			await runPresendChecks(
+				db,
+				{ subject, preheader, body, templateId: templateId || null, audience, topicId: topic },
+				{ media: event.platform?.env?.MEDIA, recipients: recipientRows, checkLinks: true }
+			),
+			policy,
+			{ scheduling: !!scheduledAt }
 		);
-		if (checks.blocks > 0 && String(data.get('send_anyway') ?? '') !== '1') {
-			return fail(400, {
-				error: `Pre-send checks found ${checks.blocks} blocking problem${checks.blocks === 1 ? '' : 's'}. Fix ${checks.blocks === 1 ? 'it' : 'them'} or tick “Send anyway”.`,
-				values,
-				checks
-			});
+		if (checks.blocks > 0) {
+			const anyway = String(data.get('send_anyway') ?? '') === '1';
+			const allowed = canSendAnyway(policy, event.locals?.user?.role);
+			if (!anyway || !allowed) {
+				const fix = `Fix ${checks.blocks === 1 ? 'it' : 'them'}`;
+				return fail(400, {
+					error: `Pre-send checks found ${checks.blocks} blocking problem${checks.blocks === 1 ? '' : 's'}. ${allowed ? `${fix} or tick “Send anyway”.` : `${fix} first${policy.override === 'none' ? ': overrides are off in Settings → General → Pre-send checks' : ': only an admin can send anyway'}.`}`,
+					values,
+					checks
+				});
+			}
 		}
 
-		const token = env(event, 'POSTMARK_TOKEN');
-		const stream = env(event, 'POSTMARK_STREAM');
+		// #700: the active sending provider; the token / stream still fall back to the env.
+		// #731: none configured → refused inline before any campaign row is written or changed
+		// (send and schedule alike); an unreadable saved token is still a 500 (mailToken).
+		const { provider: mail, creds: mailCreds } = await mailSetup(db, event.platform?.env);
+		if (sendingUnconfigured(mail, mailCreds)) return fail(409, { error: FINISH_SETUP_SENDING, values });
+		const token = mailToken(event, mailCreds);
+		const stream = mailCreds.postmark.stream || env(event, 'POSTMARK_STREAM');
 		const secret = env(event, 'SESSION_SECRET');
 		const baseUrl = await publicBaseUrlFor(event);
 
@@ -628,6 +686,7 @@ export const actions: Actions = {
 
 		const { accepted, failed, firstError } = await sendCampaignEmail(db, {
 			token,
+			provider: mail,
 			secret,
 			baseUrl,
 			campaignId,
@@ -709,8 +768,10 @@ export const actions: Actions = {
 			}
 		}
 
-		const token = env(event, 'POSTMARK_TOKEN');
-		const txStream = env(event, 'POSTMARK_STREAM_TX');
+		const { provider: mail, creds: mailCreds } = await mailSetup(db, event.platform?.env);
+		if (sendingUnconfigured(mail, mailCreds)) return fail(409, { error: FINISH_SETUP_SENDING, values, mode: 'direct' });
+		const token = mailToken(event, mailCreds);
+		const txStream = mail?.streams.transactional ?? mailCreds.postmark.txStream;
 		const secret = env(event, 'SESSION_SECRET');
 		const baseUrl = await publicBaseUrlFor(event);
 
@@ -743,6 +804,7 @@ export const actions: Actions = {
 		// 1:1 has no in-body unsubscribe footer; transactional stream.
 		const { accepted, firstError } = await sendCampaignEmail(db, {
 			token,
+			provider: mail,
 			secret,
 			baseUrl,
 			campaignId,

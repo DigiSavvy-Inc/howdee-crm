@@ -12,7 +12,7 @@
 		snapshots = false,
 		children
 	}: {
-		current: 'general' | 'setup' | 'users' | 'api' | 'webhooks' | 'integrations' | 'mail' | 'tracking' | 'snapshots' | 'assistant' | 'domain' | 'deliverability' | 'unsubscribe' | 'double-optin' | 'signature' | 'backups' | 'automations' | 'scoring' | 'newsletter' | 'brand-kit' | 'custom-fields';
+		current: 'general' | 'setup' | 'users' | 'api' | 'webhooks' | 'integrations' | 'mail' | 'tracking' | 'snapshots' | 'assistant' | 'domain' | 'deliverability' | 'unsubscribe' | 'double-optin' | 'signature' | 'backups' | 'automations' | 'scoring' | 'newsletter' | 'brand-kit' | 'custom-fields' | 'sending' | 'suggestions';
 		isAdmin: boolean;
 		/** #604: the Snapshots tab shows only while SNAPSHOT_MODE is qa / live. */
 		snapshots?: boolean;
@@ -22,6 +22,7 @@
 	const all: { id: string; label: string; href: string; icon: IconName; admin?: boolean }[] = [
 		{ id: 'general', label: 'General', href: '/settings', icon: 'general' },
 		{ id: 'setup', label: 'Setup', href: '/settings/setup', icon: 'activate', admin: true }, // #609
+		{ id: 'sending', label: 'Sending', href: '/settings/sending', icon: 'mail', admin: true }, // #700
 		{ id: 'users', label: 'Users', href: '/settings/users', icon: 'users', admin: true },
 		{ id: 'api', label: 'API', href: '/settings/api', icon: 'api-key', admin: true },
 		{ id: 'webhooks', label: 'Webhooks', href: '/settings/webhooks', icon: 'webhooks', admin: true },
@@ -40,6 +41,7 @@
 		{ id: 'custom-fields', label: 'Custom fields', href: '/settings/custom-fields', icon: 'forms', admin: true }, // #619
 		{ id: 'automations', label: 'Automations', href: '/settings/automations', icon: 'automations', admin: true },
 		{ id: 'scoring', label: 'Scoring', href: '/settings/scoring', icon: 'reports', admin: true },
+		{ id: 'suggestions', label: 'Suggestions', href: '/settings/suggestions', icon: 'sparkle', admin: true }, // #715
 		{ id: 'backups', label: 'Backups', href: '/settings/backups', icon: 'export', admin: true }
 	];
 	const items = $derived(all.filter((i) => (!i.admin || isAdmin) && (i.id !== 'snapshots' || snapshots)));

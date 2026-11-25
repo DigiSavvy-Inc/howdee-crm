@@ -17,6 +17,8 @@ import { engagementSummary } from '$lib/server/engagement-query';
 import { getForm } from '$lib/server/forms';
 import { formSubmissionsForApi, listFormsForApi, parseSince, SUBMISSIONS_MAX_LIMIT } from '$lib/server/forms-api';
 import { presendInputForCampaign, runPresendChecks } from '$lib/server/presend-checks';
+import { getPresendPolicy } from '$lib/server/presend-policy';
+import { applyPolicy } from '$lib/presend-policy';
 import { publicBaseUrlFor } from '$lib/server/public-url';
 import { contactTools } from '$lib/server/ai/tools/contacts';
 import { groupTools } from '$lib/server/ai/tools/groups';
@@ -268,15 +270,18 @@ export const MCP_TOOLS: McpToolDef[] = [
 		name: 'run_campaign_checks',
 		group: 'read',
 		description:
-			'The pre-send checks for a stored campaign (links, images, content, merge tags, audience): each check is block / warn / pass. Read-only; it never sends or schedules. check_links adds a live link check (≤ 30 links).',
+			'The pre-send checks for a stored campaign (links, images, content, merge tags, audience): each check is block / warn / pass, with the Settings → General → Pre-send checks policy applied. Read-only; it never sends, schedules or releases a hold. The live link check (≤ 60 links) runs unless check_links is false.',
 		inputSchema: obj({ campaign_id: ID('Campaign'), check_links: { type: 'boolean' } }, ['campaign_id']),
 		run: async (call) => {
-			// Same calls as POST /api/v1/campaigns/:id/checks.
+			// Same calls as POST /api/v1/campaigns/:id/checks (#479: links checked by default, policy applied).
 			const id = intArg(call.args, 'campaign_id');
 			const db = call.event.platform!.env.DB;
 			const input = await presendInputForCampaign(db, id);
 			if (!input) throw new McpToolError('No campaign with that id.');
-			const r = await runPresendChecks(db, input, { media: call.event.platform?.env?.MEDIA, checkLinks: call.args.check_links === true });
+			const r = applyPolicy(
+				await runPresendChecks(db, input, { media: call.event.platform?.env?.MEDIA, checkLinks: call.args.check_links !== false }),
+				await getPresendPolicy(db)
+			);
 			return { campaign_id: id, checks: r.checks, blocks: r.blocks, warns: r.warns, passes: r.passes, links_checked: r.linksChecked };
 		}
 	},
@@ -384,7 +389,7 @@ export const MCP_TOOLS: McpToolDef[] = [
 		name: 'get_form_submissions',
 		group: 'read',
 		description:
-			'One form\'s accepted submissions (added / updated / anonymous; spam and rejected are left out), newest first: id, contact_id, email, status, answers (by question key — see list_forms for the keys), utm, page_url, submitted_at. since = only submissions after a date or ISO date-time. Read-only.',
+			'One form\'s accepted submissions (added / updated / anonymous; spam and rejected are left out), newest first: id, contact_id, email, status, answers (by question key — see list_forms for the keys), utm, page_url (the host page of an embedded form, else the referrer), referrer, submitted_at. since = only submissions after a date or ISO date-time. Read-only.',
 		inputSchema: obj(
 			{
 				form_id: ID('Form'),

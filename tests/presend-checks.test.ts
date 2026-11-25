@@ -260,7 +260,8 @@ describe('checkLinks', () => {
 		};
 		const { probes } = await checkLinks(
 			['https://ok.com/', 'https://gone.com/', 'https://nohead.com/', 'https://app.com/dash', 'https://sneaky.com/', 'https://slow.com/', 'mailto:x@y.example.net', 'https://ok.com/'],
-			fetcher
+			fetcher,
+			{ retryDelayMs: 0 }
 		);
 		expect(probes).toHaveLength(6);
 		expect(calls).not.toContain('HEAD http://169.254.169.254/');
@@ -270,16 +271,18 @@ describe('checkLinks', () => {
 		expect(byId(checks, 'links.live_login')!.items![0]).toContain('https://app.com/login?next=dash');
 		const err = byId(checks, 'links.live_error')!;
 		expect(err.level).toBe('warn');
-		expect(err.items!.join('\n')).toContain('blocked: private address');
 		expect(err.items!.join('\n')).toContain('timed out');
+		// #479: a hop the SSRF guard refuses is "not checked", not an error.
+		expect(byId(checks, 'links.live_skipped')!.items!.join('\n')).toContain('private address');
 	});
-	it('checks at most 30 links', async () => {
-		const urls = Array.from({ length: 35 }, (_, i) => `https://s${i}.com/`);
+	it('checks at most 60 links', async () => {
+		const urls = Array.from({ length: 65 }, (_, i) => `https://s${i}.com/`);
 		const fetcher = vi.fn(async () => new Response(null, { status: 200 }));
 		const { probes, skipped } = await checkLinks(urls, fetcher);
 		expect(probes).toHaveLength(LINK_CHECK_MAX);
+		expect(LINK_CHECK_MAX).toBe(60);
 		expect(skipped).toBe(5);
-		expect(fetcher).toHaveBeenCalledTimes(30);
+		expect(fetcher).toHaveBeenCalledTimes(60);
 	});
 });
 
@@ -290,9 +293,10 @@ function form(fields: Record<string, string>) {
 	for (const [k, v] of Object.entries(fields)) fd.append(k, v);
 	return fd;
 }
-function actionEvent(fields: Record<string, string>) {
+function actionEvent(fields: Record<string, string>, role: 'admin' | 'member' = 'admin') {
 	const url = new URL('https://app.test/compose?/send');
-	return { platform: { env: platformEnv }, params: {}, url, request: new Request(url, { method: 'POST', body: form(fields) }) } as any;
+	const user = { id: role === 'admin' ? 1 : 2, role, github_login: role === 'admin' ? 'ourco-admin' : 'jdoe' };
+	return { platform: { env: platformEnv }, params: {}, url, locals: { user }, request: new Request(url, { method: 'POST', body: form(fields) }) } as any;
 }
 async function run(fn: (e: any) => unknown, e: any): Promise<{ redirect?: string; result?: any }> {
 	try {
@@ -393,6 +397,13 @@ describe('compose send: a block needs "Send anyway" (server-side)', () => {
 		expect(spies.sendCampaignEmail).toHaveBeenCalledTimes(1);
 	});
 
+	it('#479: a member can never send anyway', async () => {
+		const r = await run(compose.send!, actionEvent({ ...base, body_blocks: badBody, list_id: String(listId), send_anyway: '1' }, 'member'));
+		expect(r.result?.status).toBe(400);
+		expect(r.result?.data.error).toContain('only an admin');
+		expect(spies.sendCampaignEmail).not.toHaveBeenCalled();
+	});
+
 	it('warnings alone never block', async () => {
 		const r = await run(compose.send!, actionEvent({ subject: 'Hello', from: 'alan@ourco.example', body_blocks: goodBody, list_id: String(listId) }));
 		expect(r.redirect).toMatch(/^\/campaign\/\d+$/);
@@ -433,7 +444,8 @@ describe('endpoints', () => {
 		const res = await apiChecks(apiEv(String(id), read));
 		expect(res.status).toBe(200);
 		const { data } = await res.json<any>();
-		expect(data).toMatchObject({ campaign_id: id, blocks: 2, links_checked: false });
+		// #479: the live link check runs by default (this draft's only link isn't public: skipped).
+		expect(data).toMatchObject({ campaign_id: id, blocks: 2, links_checked: true });
 		expect(byId(data.checks, 'content.merge_unknown')!.items).toEqual(['{{firstname}}']);
 		expect((await apiChecks(apiEv(String(id), await key('campaigns:draft')))).status).toBe(403);
 	});

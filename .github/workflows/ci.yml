@@ -38,7 +38,7 @@ jobs:
       # `wrangler types` (inside `npm run check`) reads secret *names* from .dev.vars.
       # The example file is names and placeholders only — it is not a prod secret.
       - name: Secret names for wrangler types
-        run: cp .dev.vars.example .dev.vars
+        run: cp .dev.vars.reference .dev.vars
 
       - name: Audit runtime dependencies
         run: npm audit --omit=dev --audit-level=high

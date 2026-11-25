@@ -5,7 +5,7 @@ import { describe, it, expect } from 'vitest';
 import readme from '../README.md?raw';
 import guide from '../docs/self-hosting.md?raw';
 import heartbeatReadme from '../heartbeat/README.md?raw';
-import devVarsExample from '../.dev.vars.example?raw';
+import devVarsReference from '../.dev.vars.reference?raw';
 import exampleApp from '../wrangler.example.jsonc?raw';
 
 const docs: [string, string][] = [
@@ -20,7 +20,7 @@ const FORBIDDEN: [string, RegExp][] = [
 	['the old seeded login', /seeded admin/]
 ];
 
-/** Names in .dev.vars.example whose comment starts "# Required". */
+/** Names in .dev.vars.reference whose comment starts "# Required". */
 function requiredSecrets(src: string): string[] {
 	const out: string[] = [];
 	let required = false;
@@ -57,20 +57,24 @@ describe('README and self-hosting guide (#610)', () => {
 		expect(readme).toContain('](docs/self-hosting.md)');
 		expect(readme).toContain('[LICENSE](LICENSE)');
 		expect(readme).toContain('npm run deploy');
-		expect(readme).not.toContain('SEO Snapshot');
+		expect(readme).not.toMatch(/SEO[ ]Snapshot/i);
 	});
 
 	it('the guide covers every required secret and every app var', () => {
-		const required = requiredSecrets(devVarsExample);
-		expect(required).toEqual(expect.arrayContaining(['SESSION_SECRET', 'POSTMARK_TOKEN', 'WEBHOOK_KEY', 'INGEST_KEY', 'CRON_KEY']));
+		const required = requiredSecrets(devVarsReference);
+		expect(required).toEqual(expect.arrayContaining(['SESSION_SECRET', 'POSTMARK_TOKEN', 'WEBHOOK_KEY', 'INGEST_KEY']));
+		// #729: CRON_KEY is optional now (only the separate heartbeat Worker needs it).
+		expect(required).not.toContain('CRON_KEY');
 		const names = (text: string) => new Set([...text.matchAll(/\b[A-Z][A-Z_]{3,}\b/g)].map((m) => m[0]));
 		const named = names(guide);
 		for (const name of required) expect(named.has(name), `guide should name ${name}`).toBe(true);
 		for (const name of templateVars(exampleApp)) expect(named.has(name), `guide should name ${name}`).toBe(true);
 	});
 
-	it('the guide walks the install in order: resources, config, secrets, deploy, heartbeat, first admin, Postmark', () => {
-		const order = ['wrangler d1 create', 'cp wrangler.example.jsonc wrangler.jsonc', 'wrangler secret put SESSION_SECRET', 'npm run deploy', 'cd heartbeat', '/setup', '/api/webhook?key=<WEBHOOK_KEY>', 'Unsubscribe handling', 'git pull'];
+	// #728: the short install comes first, then first-run pages, Postmark and upgrading; the manual
+	// steps (resources, config, secrets, deploy, heartbeat) are the "Install by hand" section at the end.
+	it('the guide walks the install in order: install, first admin, Postmark, upgrading, then by hand', () => {
+		const order = ['npm run deploy', '/setup', '/api/webhook?key=<WEBHOOK_KEY>', 'Unsubscribe handling', 'git pull', 'Install by hand', 'wrangler d1 create', 'cp wrangler.example.jsonc wrangler.jsonc', 'wrangler secret put SESSION_SECRET', 'npm run deploy', 'cd heartbeat'];
 		let last = -1;
 		for (const step of order) {
 			const at = guide.indexOf(step, last + 1);

@@ -342,7 +342,7 @@
 			</label>
 		</div>
 		<input type="hidden" name="feature_models_field" value="1" />
-		<fieldset class="models">
+		<fieldset class="models" id="feature-models">
 			<legend>Model per feature <span class="muted">(from the allowed models as saved)</span></legend>
 			<div class="row">
 				{#each AI_FEATURES as f (f)}

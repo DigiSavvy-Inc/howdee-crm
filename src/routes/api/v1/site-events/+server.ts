@@ -1,6 +1,7 @@
 import type { RequestHandler } from '@sveltejs/kit';
 import { getDB } from '$lib/server/db';
 import { requireKey, apiData, apiError, parsePaging, buildPagination } from '$lib/server/api-v1';
+import { containsSql } from '$lib/server/sql-match';
 import {
 	SITE_EVENT_SELECT,
 	parseApiTime,
@@ -36,8 +37,8 @@ export const GET: RequestHandler = async (event) => {
 	}
 	const path = p.get('path')?.trim();
 	if (path) {
-		where.push(`COALESCE(se.path, '') LIKE ? ESCAPE '\\'`);
-		binds.push(`%${path.replace(/[\\%_]/g, (m) => `\\${m}`)}%`);
+		where.push(containsSql("COALESCE(se.path, '')")); // #485: paths run past LIKE's 50-byte cap
+		binds.push(path);
 	}
 	const site = p.get('site')?.trim();
 	if (site) {

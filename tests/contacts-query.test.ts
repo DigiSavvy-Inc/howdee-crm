@@ -214,9 +214,10 @@ describe('contactsWhere (SQL shape)', () => {
 		expect(placeholders).toBe(params.length);
 	});
 
-	it('the q clause carries ESCAPE for LIKE-wildcard safety', () => {
-		const { where } = contactsWhere({ ...EMPTY, q: 'a%b_c' });
-		expect(where).toContain("ESCAPE '\\'");
+	it('#485: the q clause binds the raw text to instr (no LIKE pattern, so no D1 50-byte cap)', () => {
+		const { where, params } = contactsWhere({ ...EMPTY, q: 'a%b_c' });
+		expect(where).not.toMatch(/\bLIKE\b/);
+		expect(params).toContain('a%b_c');
 	});
 });
 

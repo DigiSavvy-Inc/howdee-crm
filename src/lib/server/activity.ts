@@ -470,6 +470,16 @@ export async function recentActivity(db: D1Database, opts: ActivityOptions = {})
 			      ORDER BY d.checked_at DESC, d.id DESC LIMIT ?`,
 			params: [...sinceBinds, limit]
 		});
+		// #479: a scheduled send held by its pre-send checks (check_key 'preflight'), while held.
+		sources.push({
+			sql: `SELECT c.held_at AS at, 'deliverability' AS type, NULL AS contact_id, NULL AS email, NULL AS name,
+			             c.id AS campaign_id, c.subject AS subject, NULL AS automation_id, NULL AS automation_name,
+			             'held' AS detail, 'preflight' AS check_key, c.id AS sort_id
+			      FROM campaigns c
+			      WHERE c.held_at IS NOT NULL AND c.held_reason = 'preflight'${sinceSql('c.held_at')}
+			      ORDER BY c.held_at DESC, c.id DESC LIMIT ?`,
+			params: [...sinceBinds, limit]
+		});
 	}
 
 	if (types.has('assistant_setting') && !contactless) {

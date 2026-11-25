@@ -1,6 +1,7 @@
 import { error, fail, redirect, type Actions, type RequestEvent } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { getDB } from '$lib/server/db';
+import { getMailProvider } from '$lib/server/mail';
 import { parseRules, segmentMembershipSql, type SegmentRules } from '$lib/server/segment-query';
 import {
 	contactsFilterParams,
@@ -418,7 +419,7 @@ async function bulk(event: RequestEvent, action: BulkFormAction) {
 	const out = await runBulkForm(db, data, action, {
 		query: () => memberIdQuery(id, group, data),
 		currentGroup: id,
-		postmark: { token: event.platform?.env?.POSTMARK_TOKEN, stream: event.platform?.env?.POSTMARK_STREAM, txStream: event.platform?.env?.POSTMARK_STREAM_TX },
+		postmark: await getMailProvider(db, event.platform?.env),
 		actor: event.locals?.user?.github_login
 	});
 	if (!out.ok) return fail(out.status, { bulkError: out.error });

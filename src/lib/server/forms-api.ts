@@ -77,7 +77,10 @@ export type ApiSubmission = {
 	status: string;
 	answers: Record<string, unknown>;
 	utm: Record<string, string> | null;
+	/** #656: the stored host page of an embedded form (#515), else the referrer — same as the webhook. */
 	page_url: string | null;
+	/** The raw Referer header the submission arrived with (for an embed: the host page's own referrer). */
+	referrer: string | null;
 	submitted_at: string;
 };
 
@@ -102,7 +105,8 @@ export async function formSubmissionsForApi(
 			status: r.status,
 			answers: r.answers,
 			utm: r.utm,
-			page_url: r.referrer,
+			page_url: r.page_url ?? r.referrer,
+			referrer: r.referrer,
 			submitted_at: toIso(r.created_at)
 		})),
 		total: res.total,

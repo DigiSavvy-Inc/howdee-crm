@@ -5,6 +5,7 @@
 import { localParts, localToUtc, sqliteUtc } from './businessdays';
 import { compileSegment, parseRules } from './segment-query';
 import { classifyProxyOpen } from './engagement';
+import { containsSql } from './sql-match';
 import { stepShortTitle } from '$lib/automation-action-labels';
 import {
 	FREQUENCY_CAP_OFF,
@@ -244,10 +245,6 @@ export function windowNextOpen(w: WaitSpec, now: Date, tz: string): Date | null 
 	return new Date(now.getTime() + 3600_000);
 }
 
-function likeEscape(s: string): string {
-	return s.replace(/[\\%_]/g, (m) => `\\${m}`);
-}
-
 /** Has an `event` wait's event happened for this pass (since `since`, for reply / visit)? */
 export async function waitEventHappened(db: D1Database, w: WaitSpec, e: PassRef, since: string): Promise<boolean> {
 	if (w.event === 'opened' || w.event === 'clicked') {
@@ -286,9 +283,9 @@ export async function waitEventHappened(db: D1Database, w: WaitSpec, e: PassRef,
 	if (w.event === 'visited') {
 		return !!(await db
 			.prepare(
-				`SELECT 1 FROM site_events WHERE contact_id = ? AND kind = 'pageview' AND path LIKE ? ESCAPE '\\' AND occurred_at >= ? LIMIT 1`
+				`SELECT 1 FROM site_events WHERE contact_id = ? AND kind = 'pageview' AND ${containsSql('path')} AND occurred_at >= ? LIMIT 1`
 			)
-			.bind(e.contact_id, `%${likeEscape(w.path ?? '')}%`, since)
+			.bind(e.contact_id, w.path ?? '', since) // #485: no LIKE pattern cap (URLs run long)
 			.first());
 	}
 	return false;

@@ -83,9 +83,10 @@ describe('sendLogWhere (SQL shape)', () => {
 		expect(placeholders).toBe(params.length);
 	});
 
-	it('the q clause carries ESCAPE for LIKE-wildcard safety', () => {
-		const { where } = sendLogWhere({ ...EMPTY, q: 'a%b_c' });
-		expect(where).toContain("ESCAPE '\\'");
+	it('#485: the q clause binds the raw text to instr (no LIKE pattern, so no D1 50-byte cap)', () => {
+		const { where, params } = sendLogWhere({ ...EMPTY, q: 'a%b_c' });
+		expect(where).not.toMatch(/\bLIKE\b/);
+		expect(params).toContain('a%b_c');
 	});
 
 	it('type=resent filters on resend_status alone, independent of list_id/automation_step_id', () => {

@@ -121,6 +121,18 @@ describe('required checks', () => {
 		expect(byId(rows, id).fix).toBeTruthy();
 	});
 
+	it('#731: token and From fixes lead with the in-app path, the command line second', async () => {
+		const rows = (await runSetupChecks(db, goodEnv({ POSTMARK_TOKEN: undefined, POSTMARK_FROM: 'you@example.com' }), fakePostmark(GOOD_PM).fn)).checks;
+		// The brand-new install: no env token, no stored token, MAIL_TOKEN_KEY set. The row shown is
+		// the provider's (postmarkCheckRows), which replaces the local one in runSetupChecks.
+		expect(byId(rows, 'postmark_token').state).toBe('attention');
+		const token = byId(rows, 'postmark_token').fix!;
+		expect(token.startsWith('Paste it in the setup wizard (step 2) or Settings → Sending.')).toBe(true);
+		expect(token.indexOf('wrangler secret put')).toBeGreaterThan(token.indexOf('Settings → Sending'));
+		const from = byId(rows, 'default_from').fix!;
+		expect(from.startsWith('Set it in the setup wizard (step 1) or Settings → General.')).toBe(true);
+	});
+
 	it('default From from Settings wins over a placeholder POSTMARK_FROM', async () => {
 		await db.prepare(`INSERT INTO app_state (key, value) VALUES ('default_from', 'hello@ourco.test')`).run();
 		const rows = (await runSetupChecks(db, goodEnv({ POSTMARK_FROM: 'you@example.com' }), fakePostmark(GOOD_PM).fn)).checks;

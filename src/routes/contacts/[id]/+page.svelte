@@ -514,7 +514,8 @@
 	{/if}
 </section>
 
-<section class="card pipeline">
+<!-- #714: a suggestion's "Open deal" links to #pipeline. -->
+<section class="card pipeline" id="pipeline">
 	<h2>Pipeline</h2>
 	{#if pc}
 		<div class="pl-head">

@@ -22,6 +22,7 @@ import type { FieldChange } from '$lib/assistant-actions';
 import { BODY_PROPS, blocksArg, bodyOf } from './draft-body';
 import { AutomationInput, defaultFrom, outlineLines, prepareSpec, problemLines, stepCountText, waitArg, waitText } from './automation-input';
 import { ToolInputError, UndoRefused, intArg, type Tool, type ToolContext, type WriteOutcome, type WritePlan, type WriteTool } from './types';
+import { containsSql } from '../../sql-match';
 
 const LANE_MAX = 100;
 const REVIEW_NOTE = 'Review and activate it in Automations.';
@@ -346,7 +347,8 @@ async function createFlow(ctx: ToolContext, input: Record<string, unknown>, tool
 
 /** A tag the build created is removed with it — only while nothing else uses it. */
 async function tagUnused(db: D1Database, t: { id: number; name: string }): Promise<boolean> {
-	const quoted = `%${JSON.stringify(t.name)}%`;
+	// #485: instr, not LIKE — D1 caps LIKE patterns at 50 bytes and a tag name can be longer.
+	const quoted = JSON.stringify(t.name);
 	const r = await db
 		.prepare(
 			`SELECT (SELECT COUNT(*) FROM list_members WHERE list_id = ?1)
@@ -355,8 +357,8 @@ async function tagUnused(db: D1Database, t: { id: number; name: string }): Promi
 			      + (SELECT COUNT(*) FROM campaigns WHERE list_id = ?1 OR tag_on_open = ?2 COLLATE NOCASE OR tag_on_click = ?2 COLLATE NOCASE)
 			      + (SELECT COUNT(*) FROM automation_steps
 			          WHERE tag_name = ?2 COLLATE NOCASE OR gate_name = ?2 COLLATE NOCASE OR tag_on_open = ?2 COLLATE NOCASE
-			             OR tag_on_click = ?2 COLLATE NOCASE OR gate_ref_id = ?1 OR gate_rules LIKE ?3)
-			      + (SELECT COUNT(*) FROM lists WHERE rules LIKE ?3) AS n`
+			             OR tag_on_click = ?2 COLLATE NOCASE OR gate_ref_id = ?1 OR ${containsSql('gate_rules', '?3')})
+			      + (SELECT COUNT(*) FROM lists WHERE ${containsSql('rules', '?3')}) AS n`
 		)
 		.bind(t.id, t.name, quoted)
 		.first<{ n: number }>();

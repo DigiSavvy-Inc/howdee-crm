@@ -4,6 +4,11 @@
 //   custom_domain           bare hostname (crm.example.com); unset = env PUBLIC_BASE_URL
 //   custom_domain_status    JSON { ok, code, checkedAt, domain, error? } — last Check status
 //   custom_domain_redirect  '1' = 301 browser GET/HEAD on any other host to the custom domain
+//   public_base_url_seen    #731: the origin the first admin's /setup request arrived on, or the
+//                           one an admin chose later with the setup wizard's "Use this address for
+//                           links" (which also clears it). Used when neither Settings → Domain nor
+//                           PUBLIC_BASE_URL is set, so the built-in clock (whose own origin is
+//                           internal) still builds real links. Never written by a page load.
 //
 // `publicBaseUrl` is the one place unsubscribe links, List-Unsubscribe, hosted pages, media
 // URLs, tracking snippets and the URLs shown in Settings get their origin from. The three
@@ -17,8 +22,11 @@ const CF_API = 'https://api.cloudflare.com/client/v4';
 const CACHE_TTL_MS = 30_000;
 
 export type DomainStatus = { ok: boolean; code: number | null; checkedAt: string; domain: string; error?: string };
-export type DomainConfig = { domain: string | null; redirect: boolean; status: DomainStatus | null };
-export type BaseUrlSource = 'setting' | 'env' | 'request' | 'none';
+export type DomainConfig = { domain: string | null; redirect: boolean; status: DomainStatus | null; seen?: string | null };
+export type BaseUrlSource = 'setting' | 'env' | 'seen' | 'request' | 'none';
+
+/** #731: app_state key of the origin recorded at first-run setup. */
+export const SEEN_BASE_URL_KEY = 'public_base_url_seen';
 
 type EnvLike =
 	| { PUBLIC_BASE_URL?: string; CF_API_TOKEN?: string; CF_ACCOUNT_ID?: string; WORKER_NAME?: string }
@@ -33,16 +41,22 @@ export function workerName(env: EnvLike): string {
 
 const trimSlash = (s: string) => s.trim().replace(/\/+$/, '');
 
-/** Precedence: setting → env PUBLIC_BASE_URL → fallback origin. No trailing slash. */
+/**
+ * Precedence: setting → env PUBLIC_BASE_URL → the origin seen at setup (#731) → fallback origin.
+ * No trailing slash.
+ */
 export function resolveBaseUrl(
 	customDomain: string | null | undefined,
 	envBase: string | null | undefined,
-	fallbackOrigin?: string | null
+	fallbackOrigin?: string | null,
+	seen?: string | null
 ): { url: string; source: BaseUrlSource } {
 	const d = customDomain?.trim();
 	if (d) return { url: `https://${trimSlash(d)}`, source: 'setting' };
 	const e = envBase?.trim();
 	if (e) return { url: trimSlash(e), source: 'env' };
+	const s = seen?.trim();
+	if (s) return { url: trimSlash(s), source: 'seen' };
 	const f = fallbackOrigin?.trim();
 	if (f) return { url: trimSlash(f), source: 'request' };
 	return { url: '', source: 'none' };
@@ -60,13 +74,15 @@ function parseStatus(raw: string | null | undefined): DomainStatus | null {
 
 export async function readDomainConfig(db: D1Database): Promise<DomainConfig> {
 	const rows = await db
-		.prepare(`SELECT key, value FROM app_state WHERE key IN ('custom_domain', 'custom_domain_status', 'custom_domain_redirect')`)
+		.prepare(`SELECT key, value FROM app_state WHERE key IN ('custom_domain', 'custom_domain_status', 'custom_domain_redirect', ?)`)
+		.bind(SEEN_BASE_URL_KEY)
 		.all<{ key: string; value: string | null }>();
 	const v = new Map(rows.results.map((r) => [r.key, r.value]));
 	return {
 		domain: v.get('custom_domain')?.trim() || null,
 		redirect: v.get('custom_domain_redirect') === '1',
-		status: parseStatus(v.get('custom_domain_status'))
+		status: parseStatus(v.get('custom_domain_status')),
+		seen: v.get(SEEN_BASE_URL_KEY)?.trim() || null
 	};
 }
 
@@ -99,7 +115,96 @@ export async function publicBaseUrl(
 	fallbackOrigin?: string | null
 ): Promise<string> {
 	const cfg = await domainConfig(db);
-	return resolveBaseUrl(cfg.domain, (env as { PUBLIC_BASE_URL?: string } | null | undefined)?.PUBLIC_BASE_URL, fallbackOrigin).url;
+	return resolveBaseUrl(cfg.domain, (env as { PUBLIC_BASE_URL?: string } | null | undefined)?.PUBLIC_BASE_URL, fallbackOrigin, cfg.seen).url;
+}
+
+// ── #731: the origin seen at first-run setup ─────────────────────────────────────────
+
+/** Origins that are never stored as the app's address. Kept in step with internal-tick.ts
+ *  (`INTERNAL_TICK_ORIGIN`); a literal here so this module doesn't import the wrapper's file. */
+const INTERNAL_ORIGIN = 'https://scheduled.invalid';
+
+function isLoopbackHost(host: string): boolean {
+	const h = host.toLowerCase().replace(/^\[|\]$/g, '');
+	return h === 'localhost' || h.endsWith('.localhost') || h === '::1' || h === '0.0.0.0' || /^127\./.test(h);
+}
+
+/**
+ * Why `origin` can't be stored as the app's address, or null when it can. Refused: anything but
+ * an http(s) origin, the internal tick origin, a reserved `.invalid` host, and a loopback host
+ * unless `allowLoopback` (local development, plain http). Production (https) never stores one.
+ */
+export function seenOriginProblem(origin: string, opts: { allowLoopback?: boolean } = {}): string | null {
+	let u: URL;
+	try {
+		u = new URL(origin);
+	} catch {
+		return 'not a URL';
+	}
+	if (u.protocol !== 'https:' && u.protocol !== 'http:') return 'not http(s)';
+	if (u.origin === INTERNAL_ORIGIN || u.hostname.endsWith('.invalid')) return 'internal origin';
+	if (isLoopbackHost(u.hostname) && !(opts.allowLoopback && u.protocol === 'http:')) return 'loopback host';
+	if (u.protocol === 'http:' && !isLoopbackHost(u.hostname)) return 'not https';
+	return null;
+}
+
+/**
+ * Store the origin a real request arrived on as the app's address, when none is stored yet
+ * (/setup, at first-admin creation). `url` must be the request's own URL (`event.url`), never a
+ * header or form value, so the stored host is one the request actually arrived on. Returns true
+ * when a value was written.
+ */
+export async function recordSeenOrigin(db: D1Database, url: URL, opts: { allowLoopback?: boolean } = {}): Promise<boolean> {
+	const origin = url.origin;
+	if (seenOriginProblem(origin, opts)) return false;
+	const res = await db
+		.prepare(
+			`INSERT INTO app_state (key, value, updated_at) VALUES (?, ?, datetime('now'))
+			 ON CONFLICT(key) DO NOTHING`
+		)
+		.bind(SEEN_BASE_URL_KEY, origin)
+		.run();
+	clearDomainCache(db);
+	return !!res.meta.changes;
+}
+
+/**
+ * #731: an admin's explicit choice in the setup wizard: replace the stored origin with the one
+ * this request arrived on (`event.url`, never a header or form value). Same refusals as
+ * `recordSeenOrigin`. Returns the problem, or null when it was stored.
+ */
+export async function replaceSeenOrigin(db: D1Database, url: URL, opts: { allowLoopback?: boolean } = {}): Promise<string | null> {
+	const origin = url.origin;
+	const problem = seenOriginProblem(origin, opts);
+	if (problem) return problem;
+	await db
+		.prepare(
+			`INSERT INTO app_state (key, value, updated_at) VALUES (?, ?, datetime('now'))
+			 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+		)
+		.bind(SEEN_BASE_URL_KEY, origin)
+		.run();
+	clearDomainCache(db);
+	return null;
+}
+
+/** #731: forget the stored origin (the setup wizard's "Clear"). Links then follow the request
+ *  origin, and the built-in clock skips until an address is set again. */
+export async function clearSeenOrigin(db: D1Database): Promise<void> {
+	await db.prepare(`DELETE FROM app_state WHERE key = ?`).bind(SEEN_BASE_URL_KEY).run();
+	clearDomainCache(db);
+}
+
+/**
+ * #731: true when `host` has the shape of a Cloudflare version-preview address
+ * (`<8 hex>-<worker>.<subdomain>.workers.dev`). Only a hint for the wizard: an ordinary Worker can
+ * be named like that too, so nothing is refused on it; the wizard shows the host plainly with a
+ * note and leaves the choice to the admin.
+ */
+export function looksLikeVersionPreview(host: string): boolean {
+	const h = host.toLowerCase();
+	if (!h.endsWith('.workers.dev')) return false;
+	return /^[0-9a-f]{8}-[a-z0-9-]+$/.test(h.split('.')[0] ?? '');
 }
 
 /** Request-scoped convenience: the request's DB + env, its own origin as the fallback. */
@@ -309,7 +414,10 @@ export const REDIRECT_EXEMPT = [
 	'/unsubscribe/one-click',
 	'/img',
 	'/t.js',
-	'/api/track'
+	'/api/track',
+	// #701: tracking links in mail already sent keep working on every host the app answers on.
+	'/t/o',
+	'/t/c'
 ];
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);

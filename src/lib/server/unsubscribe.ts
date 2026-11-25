@@ -1,13 +1,14 @@
 // Shared "unsubscribe from everything" effect: the /unsubscribe page's ?/unsubscribeAll
 // action and the RFC 8058 one-click endpoint (#264) both land here.
-import { suppress } from './postmark';
+import { asMailProvider, type MailSource } from './mail';
 import type { UnsubPayload } from './token';
 import { subscriptionChanged } from './subscription-trigger';
 import type { SubscriptionSource } from '$lib/subscription-trigger';
 
 export async function unsubscribeAll(
 	db: D1Database,
-	postmark: { token?: string; stream?: string },
+	/** #700: the sending provider, or a Postmark credential bundle. */
+	postmark: MailSource,
 	payload: UnsubPayload,
 	reason: string | null,
 	detail: string | null,
@@ -45,9 +46,10 @@ export async function unsubscribeAll(
 		.bind(payload.k, payload.c, email, reason, detail)
 		.run();
 
-	// Best-effort: also suppress on the Postmark broadcast stream.
+	// Best-effort: also suppress on the provider's list (Postmark: the broadcast stream).
 	try {
-		if (postmark.token && postmark.stream) await suppress(postmark.token, postmark.stream, email);
+		const mail = asMailProvider(postmark);
+		if (mail?.suppressions && mail.streams.broadcast) await mail.suppressions.add(email, 'unsubscribe');
 	} catch {
 		/* don't fail the unsubscribe if Postmark sync errors */
 	}

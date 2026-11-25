@@ -177,6 +177,7 @@ export async function processBestTimeQueue(
 		try {
 			const res = await sendCampaignEmail(db, {
 				token: cfg.token,
+				provider: cfg.provider,
 				secret: cfg.secret,
 				baseUrl: cfg.baseUrl,
 				campaignId: c.id,

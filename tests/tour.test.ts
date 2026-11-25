@@ -3,6 +3,7 @@ import { env } from 'cloudflare:test';
 import { POST as dismissTour } from '../src/routes/api/tour/dismiss/+server';
 import { findActiveUserById } from '../src/lib/server/users';
 import { STEPS } from '../src/lib/tour-steps';
+import { isSetupWizardUrl, tourShouldAutoStart } from '../src/lib/tour-start';
 
 const db = (env as any).DB as D1Database;
 
@@ -81,5 +82,31 @@ describe('tour steps content', () => {
 		const settings = STEPS.find((s) => s.id === 'settings');
 		expect(settings?.target).toBe('[data-tour="user"]');
 		expect(settings?.body).toContain('Settings, the tour, and sign-out live under your avatar');
+	});
+});
+
+describe('tour auto-start (#731)', () => {
+	const u = (path: string) => new URL(`https://app.test${path}`);
+	const fresh = { tourSeen: false, seenLocal: false };
+
+	it('does not open over the first-run setup wizard', () => {
+		expect(isSetupWizardUrl(u('/settings/setup?first=1'))).toBe(true);
+		expect(isSetupWizardUrl(u('/settings/setup?wizard=address'))).toBe(true);
+		expect(isSetupWizardUrl(u('/settings/setup?wizard=nonsense'))).toBe(true);
+		expect(isSetupWizardUrl(u('/settings/setup/?wizard=sending'))).toBe(true);
+		expect(tourShouldAutoStart({ ...fresh, url: u('/settings/setup?first=1') })).toBe(false);
+		expect(tourShouldAutoStart({ ...fresh, url: u('/settings/setup?wizard=test') })).toBe(false);
+	});
+
+	it('opens for a new user on any other page, including the plain checklist', () => {
+		expect(tourShouldAutoStart({ ...fresh, url: u('/') })).toBe(true);
+		expect(tourShouldAutoStart({ ...fresh, url: u('/contacts?wizard=address') })).toBe(true);
+		expect(tourShouldAutoStart({ ...fresh, url: u('/settings/setup') })).toBe(true);
+		expect(tourShouldAutoStart({ ...fresh, url: u('/settings/setup?first=0') })).toBe(true);
+	});
+
+	it('keeps the first-time rule: never once seen in the DB or this browser', () => {
+		expect(tourShouldAutoStart({ tourSeen: true, seenLocal: false, url: u('/') })).toBe(false);
+		expect(tourShouldAutoStart({ tourSeen: false, seenLocal: true, url: u('/') })).toBe(false);
 	});
 });

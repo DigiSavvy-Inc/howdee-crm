@@ -1,5 +1,6 @@
 import type { RequestHandler } from '@sveltejs/kit';
 import { getDB } from '$lib/server/db';
+import { getMailProvider } from '$lib/server/mail';
 import { requireKey, apiData, apiError } from '$lib/server/api-v1';
 import { contactsFilterQuery, resolveSelection, runBulk, BULK_CAP, type BulkOp } from '$lib/server/contact-bulk';
 
@@ -33,12 +34,9 @@ type Action = (typeof ACTIONS)[number];
 // → { data: { action, matched, affected, skipped, message } }.
 export const POST: RequestHandler = async (event) => {
 	const gate = await requireKey(event, 'read_write');
-	const postmark = {
-		token: event.platform?.env?.POSTMARK_TOKEN,
-		stream: event.platform?.env?.POSTMARK_STREAM,
-		txStream: event.platform?.env?.POSTMARK_STREAM_TX
-	};
 	if ('response' in gate) return gate.response;
+	// #700: the active sending provider (Settings → Sending, else the env).
+	const postmark = await getMailProvider(getDB(event), event.platform?.env);
 
 	let body: Record<string, unknown>;
 	try {

@@ -4,6 +4,8 @@
 // contact tags and mean something different (FEATURE_CHECKLIST §4's `kind` leak doesn't
 // apply here since this never touches `lists`).
 
+import { containsSql } from './sql-match';
+
 export const MAX_LABELS_PER_AUTOMATION = 10;
 
 /** Trim, collapse internal whitespace to one space, and enforce a 1–30 char length.
@@ -190,9 +192,9 @@ export async function automationsListQuery(
 		binds.push(filter.label);
 	}
 	if (filter.q) {
-		const like = `%${filter.q.replace(/[\\%_]/g, '\\$&')}%`;
-		conditions.push("(a.name LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM automation_labels al WHERE al.automation_id = a.id AND al.label LIKE ? ESCAPE '\\'))");
-		binds.push(like, like);
+		// #485: instr, not LIKE (D1 caps LIKE patterns at 50 bytes).
+		conditions.push(`(${containsSql('a.name')} OR EXISTS (SELECT 1 FROM automation_labels al WHERE al.automation_id = a.id AND ${containsSql('al.label')}))`);
+		binds.push(filter.q, filter.q);
 	}
 	// Status counts see the label (and #477 search) filter only — "how many of each within this label".
 	const countWhere = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';

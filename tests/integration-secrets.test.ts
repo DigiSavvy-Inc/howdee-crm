@@ -164,8 +164,8 @@ describe('cleanToken (#350)', () => {
 	});
 
 	it('strips a pasted Bearer prefix and keeps the other checks', () => {
-		expect(cleanToken('  Bearer xyz123456789  ')).toEqual({ ok: true, token: 'xyz123456789' });
-		expect(cleanToken('bearer xyz123456789')).toEqual({ ok: true, token: 'xyz123456789' });
+		expect(cleanToken('  Bearer xyz123456789  ')).toEqual({ ok: true, token: 'xyz123456789' }); // gitleaks:allow
+		expect(cleanToken('bearer xyz123456789')).toEqual({ ok: true, token: 'xyz123456789' }); // gitleaks:allow
 		expect(cleanToken('Bearer short')).toMatchObject({ ok: false, error: 'That token is too short.' });
 		expect(cleanToken('abc def ghi jkl')).toMatchObject({ ok: false });
 		expect(cleanToken('   ')).toMatchObject({ ok: false, error: 'Paste a token first.' });

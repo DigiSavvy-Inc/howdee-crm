@@ -24,6 +24,8 @@
 
 import { dohQuery } from './spam';
 import { getSettings } from './settings';
+import { resolveMailCredentials } from './mail/config';
+import { casAppState } from './app-state-claim';
 
 export type CheckStatus = 'pass' | 'warn' | 'fail' | 'unknown';
 export type CheckKey = 'dmarc' | 'spf' | 'dkim' | 'google_dkim' | 'return_path' | 'unsubscribe_handling';
@@ -496,11 +498,31 @@ function broadcastStream(env: DomainAuthEnv): { stream: string; transactional: b
 	return { stream, transactional: stream === tx || stream === 'outbound' };
 }
 
+/**
+ * #700: `env` with the Postmark server token and stream names the sending path uses
+ * (Settings → Sending, else the env), so a token saved only in Settings works here too. An
+ * env-only install gets its own values back. A stored token that can't be read leaves the
+ * token empty and sets `POSTMARK_TOKEN_ERROR` (no env fallback).
+ */
+export async function withSendingCreds<E extends DomainAuthEnv>(db: D1Database, env: E): Promise<E> {
+	const pm = (await resolveMailCredentials(db, env)).postmark;
+	return {
+		...env,
+		POSTMARK_TOKEN: pm.token,
+		POSTMARK_STREAM: pm.stream,
+		POSTMARK_STREAM_TX: pm.txStream,
+		POSTMARK_TOKEN_ERROR: pm.tokenError ?? undefined
+	};
+}
+
 export async function checkStream(env: DomainAuthEnv): Promise<StreamReport> {
 	const { stream, transactional } = broadcastStream(env);
+	const token = (env.POSTMARK_TOKEN || '').trim();
 	const read: StreamRead = transactional
 		? { ok: false, error: 'POSTMARK_STREAM is the transactional stream' }
-		: await fetchStreamConfig((env.POSTMARK_TOKEN || '').trim() || undefined, stream);
+		: !token && env.POSTMARK_TOKEN_ERROR
+			? { ok: false, error: env.POSTMARK_TOKEN_ERROR }
+			: await fetchStreamConfig(token || undefined, stream);
 	return { stream, check: checkUnsubscribeHandling(stream, read) };
 }
 
@@ -509,13 +531,13 @@ export const CUSTOM_UNSUB_BODY = { SubscriptionManagementConfiguration: { Unsubs
 /**
  * "Switch to custom": `PATCH /message-streams/{POSTMARK_STREAM}` with `CUSTOM_UNSUB_BODY`.
  * Refuses the transactional stream (`POSTMARK_STREAM_TX`, default `outbound`). Callers gate
- * it to admins. Never throws.
+ * it to admins and pass `withSendingCreds(db, env)` (#700). Never throws.
  */
 export async function switchToCustomUnsubscribe(env: DomainAuthEnv): Promise<{ ok: true; stream: string } | { ok: false; error: string }> {
 	const { stream, transactional } = broadcastStream(env);
 	if (transactional) return { ok: false, error: `${stream} is the transactional stream; only the broadcast stream is switched.` };
 	const token = (env.POSTMARK_TOKEN || '').trim();
-	if (!token) return { ok: false, error: 'No Postmark server token set.' };
+	if (!token) return { ok: false, error: env.POSTMARK_TOKEN_ERROR || 'No Postmark server token set.' };
 	try {
 		const res = await fetch(`${PM_API}/message-streams/${encodeURIComponent(stream)}`, {
 			method: 'PATCH',
@@ -615,6 +637,10 @@ export type DomainAuthEnv = {
 	REVIEW_FROM?: string;
 	POSTMARK_STREAM?: string;
 	POSTMARK_STREAM_TX?: string;
+	/** #700: opens the token saved in Settings → Sending (`withSendingCreds`). */
+	MAIL_TOKEN_KEY?: string;
+	/** #700: set by `withSendingCreds` when the token saved in Settings → Sending can't be read. */
+	POSTMARK_TOKEN_ERROR?: string;
 };
 
 /**
@@ -716,7 +742,7 @@ export async function runDomainAuthCheck(
 	const { domains: pm, error } = names.length ? await fetchPostmarkDomains(postmarkDomainsToken(env), names) : { domains: new Map(), error: null };
 	const reports: DomainReport[] = [];
 	for (const name of names) reports.push(await checkDomain(name, pm.get(name) ?? null, error));
-	const stream = await checkStream(env);
+	const stream = await checkStream(await withSendingCreds(db, env));
 	const result: DomainAuthResult = { at: now.toISOString(), trigger, postmarkError: error, domains: reports, stream };
 	const raised = await recordResult(db, result);
 	return { result, raised };
@@ -783,7 +809,8 @@ export async function runDomainAuthDaily(
 		const row = await db.prepare('SELECT value FROM app_state WHERE key = ?').bind(CRON_KEY).first<{ value: string | null }>();
 		const last = row?.value ? Date.parse(row.value) : NaN;
 		if (Number.isFinite(last) && now - last < DAY_MS) return { skipped: 'ran in the last 24h' };
-		await putState(db, CRON_KEY, new Date(now).toISOString());
+		// #729: compare-and-set on the stamp we just read, so two clocks ticking at once can't both run it.
+		if (!(await casAppState(db, CRON_KEY, row?.value ?? null, new Date(now).toISOString()))) return { skipped: 'ran in the last 24h' };
 		const { result, raised } = await runDomainAuthCheck(db, env, 'cron', new Date(now));
 		const failing = result.domains.reduce((n, d) => n + d.checks.filter((c) => c.status === 'fail').length, 0);
 		return { checked: result.domains.length, failing, raised: raised.length };

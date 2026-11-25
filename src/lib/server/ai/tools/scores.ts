@@ -15,6 +15,7 @@ import { addScorePoints } from '../../scoring/contact';
 import { computePairs, markPairsDirty } from '../../scoring/engine';
 import { contactWriteTriggerNotes } from './trigger-guard';
 import { ToolInputError, UndoRefused, intArg, strArg, type Tool, type ToolContext, type WriteTool } from './types';
+import { startsWithSql } from '../../sql-match';
 
 /** Most contacts one add_score_points call may adjust (like the other contact writes). */
 const IDS_MAX = 500;
@@ -187,14 +188,15 @@ const addScorePointsTool: WriteTool = {
 	undo: async (ctx, _before, after) => {
 		const a = after as PointsAfter | null;
 		if (!a?.tag) return;
+		// #485: a prefix compare, not LIKE (D1 caps LIKE patterns at 50 bytes; the tag is ~43).
 		const rows = await ctx.db
-			.prepare(`SELECT contact_id FROM score_points WHERE score_id = ? AND source_type = 'manual' AND source_id LIKE ? ESCAPE '\\'`)
-			.bind(a.score_id, `${a.tag.replace(/[\\%_]/g, (m) => `\\${m}`)}-%`)
+			.prepare(`SELECT contact_id FROM score_points WHERE score_id = ? AND source_type = 'manual' AND ${startsWithSql('source_id')}`)
+			.bind(a.score_id, `${a.tag}-`)
 			.all<{ contact_id: number }>();
 		if (!rows.results.length) throw new UndoRefused('Those points are gone already — nothing to undo.');
 		await ctx.db
-			.prepare(`DELETE FROM score_points WHERE score_id = ? AND source_type = 'manual' AND source_id LIKE ? ESCAPE '\\'`)
-			.bind(a.score_id, `${a.tag.replace(/[\\%_]/g, (m) => `\\${m}`)}-%`)
+			.prepare(`DELETE FROM score_points WHERE score_id = ? AND source_type = 'manual' AND ${startsWithSql('source_id')}`)
+			.bind(a.score_id, `${a.tag}-`)
 			.run();
 		const pairs = [...new Set(rows.results.map((r) => r.contact_id))].map((c) => [c, a.score_id] as [number, number]);
 		await markPairsDirty(ctx.db, pairs, ctx.now, { quiet: true });

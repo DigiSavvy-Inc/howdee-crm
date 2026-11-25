@@ -29,6 +29,7 @@ import {
 import { snapshot } from '$lib/server/snapshot';
 import { archivedClause, parseArchivedView } from '$lib/server/contacts-query';
 import { activeSubscriptionSql } from '$lib/server/active-audience';
+import { containsSql } from '$lib/server/sql-match';
 
 // GET /api/v1/contacts — list contacts (read scope).
 // Filters: email (exact), q (search email/name), subscribed, source (exact),
@@ -56,9 +57,9 @@ export const GET: RequestHandler = async (event) => {
 
 	const q = url.searchParams.get('q')?.trim();
 	if (q) {
-		const like = `%${q.replace(/[\\%_]/g, '\\$&')}%`;
-		where.push("(c.email LIKE ? ESCAPE '\\' OR c.name LIKE ? ESCAPE '\\' OR c.first_name LIKE ? ESCAPE '\\' OR c.last_name LIKE ? ESCAPE '\\')");
-		binds.push(like, like, like, like);
+		// #485: instr, not LIKE (D1 caps LIKE patterns at 50 bytes).
+		where.push(`(${['c.email', 'c.name', 'c.first_name', 'c.last_name'].map((f) => containsSql(f)).join(' OR ')})`);
+		binds.push(q, q, q, q);
 	}
 
 	const subscribed = parseBool(url.searchParams.get('subscribed'));

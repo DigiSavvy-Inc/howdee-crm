@@ -347,7 +347,7 @@ export async function collectBriefSources(
 		};
 	}
 
-	// ---- automations + SEO snapshots ----
+	// ---- automations + snapshot feature rows (via the seam, #608) ----
 	const autos = await db
 		.prepare(
 			`SELECT a.id, a.name, e.enrolled_at, c.email, c.name AS cname, c.first_name, c.last_name
@@ -361,7 +361,7 @@ export async function collectBriefSources(
 		addSource('automations', ids.size === 1 ? `/automations/${autos.results[0].id}` : '/automations', 'Active automation passes');
 	}
 	const snaps = await snapshot.briefRows(db, companyId);
-	if (snaps.length) addSource('snapshot', `/contacts/${snaps[0].contact_id}`, 'SEO Snapshot');
+	if (snaps.length) addSource('snapshot', `/contacts/${snaps[0].contact_id}`, 'Snapshot');
 
 	const input: BriefInput = {
 		company: { id: co.id, name: co.name, domain: co.domain, website: co.website, notes: excerpt(co.notes) ? (co.notes ?? '').slice(0, 2000) : null },

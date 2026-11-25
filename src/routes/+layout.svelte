@@ -11,6 +11,7 @@
 	import AssistantFab from '$lib/components/AssistantFab.svelte';
 	import SearchPalette from '$lib/components/SearchPalette.svelte';
 	import AskAiPopover from '$lib/components/AskAiPopover.svelte';
+	import SuggestionsPanel from '$lib/components/SuggestionsPanel.svelte';
 	import { isSearchShortcut, isTypingTarget } from '$lib/site-search';
 	import { detectMac } from '$lib/shortcuts';
 	import { initPlatform, kbd } from '$lib/platform.svelte';
@@ -513,6 +514,8 @@
 	<HelpPanel />
 	<SearchPalette bind:open={searchOpen} isAdmin={data.user?.role === 'admin'} />
 	{#if data.showAssistant}<AssistantPanel /><AssistantFab />{/if}
+	<!-- #714: the suggestions pill / card, above the assistant bubble (feature on + open to this user). -->
+	{#if data.suggestions && data.user}<SuggestionsPanel summary={data.suggestions} userId={data.user.id} aboveFab={data.showAssistant} />{/if}
 	<!-- #679: Ask AI in the editors' selection bubble (setting on + assistant access). -->
 	{#if data.editorAsk}<AskAiPopover />{/if}
 	<Tour tourSeen={data.user?.tourSeen ?? true} isAdmin={data.user?.role === 'admin'} appName={branding.appName} />

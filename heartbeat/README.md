@@ -1,8 +1,18 @@
 # Automation heartbeat Worker
 
 A standalone Cloudflare Worker whose only job is to POST the app's automation tick
-endpoint on a cron schedule. It exists because the SvelteKit app's adapter worker
-exports only a `fetch` handler (no `scheduled`), so it can't own a cron trigger itself.
+endpoint on a cron schedule.
+
+**Optional since #729.** The app Worker runs its own clock: `npm run build` wraps the SvelteKit
+build (whose adapter worker exports only `fetch`) with a `scheduled` handler
+(`scripts/wrap-worker.mjs`; `main` stays `.svelte-kit/cloudflare/_worker.js`), and
+`wrangler.example.jsonc` has `triggers.crons`. A new install from the template needs neither this
+Worker nor `CRON_KEY` (`/api/health` still uses `CRON_KEY` as its key). Installs that already run
+this Worker keep working unchanged; to use only this Worker, leave `triggers` out of the app's
+`wrangler.jsonc`. Running both clocks at once is safe: sends and outside calls are claimed before
+they run, and the daily and lease-based jobs claim their run (see docs/self-hosting.md step 6).
+The built-in clock's Cron history in the Cloudflare dashboard shows every run as a success; a failed
+tick shows in the app Worker's logs and on Settings → Setup.
 
 All engine logic lives in the app (`src/lib/server/automations.ts`). This worker is
 just the clock — `src/index.ts` is ~40 lines.

@@ -36,7 +36,8 @@ function actionEvent(action: string, fields: [string, string][]) {
 	const fd = new FormData();
 	for (const [k, v] of fields) fd.append(k, v);
 	const url = new URL(`https://app.test/compose?/${action}`);
-	return { platform: { env: platformEnv }, params: {}, url, request: new Request(url, { method: 'POST', body: fd }) } as any;
+	// #479: only an admin may tick "Send anyway".
+	return { platform: { env: platformEnv }, params: {}, url, locals: { user: { id: 1, role: 'admin', github_login: 'ourco-admin' } }, request: new Request(url, { method: 'POST', body: fd }) } as any;
 }
 async function run(fn: (e: any) => unknown, e: any): Promise<{ redirect?: string; result?: any }> {
 	try {

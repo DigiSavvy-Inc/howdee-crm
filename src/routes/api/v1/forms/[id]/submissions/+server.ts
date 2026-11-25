@@ -8,7 +8,8 @@ import { formSubmissionsForApi, parseSince } from '$lib/server/forms-api';
 // anonymous; spam and rejected stay in the app), newest first (read scope). Read-only.
 // `since` (YYYY-MM-DD or ISO date-time, UTC) = only submissions after it. Paging: limit
 // (default 50, max 200), offset. Each: id, form_id, form_version, contact_id, email, status,
-// answers, utm, page_url, submitted_at (ISO, UTC).
+// answers, utm, page_url (embedded form: the stored host page, #656; else the referrer), referrer,
+// submitted_at (ISO, UTC).
 export const GET: RequestHandler = async (event) => {
 	const gate = await requireKey(event, 'read');
 	if ('response' in gate) return gate.response;

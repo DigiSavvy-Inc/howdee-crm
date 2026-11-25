@@ -10,6 +10,7 @@ import { audienceViews, readAudiences } from '$lib/server/campaign-audience';
 import { audienceLabel, type AudienceView } from '$lib/campaign-audience';
 import { archiveUrl } from '$lib/newsletter-archive';
 import { visibleCampaignSql } from '$lib/server/system-mail';
+import { containsSql } from '$lib/server/sql-match';
 
 /** Origin for compose_url links: Settings → Domain, PUBLIC_BASE_URL, else the request's origin (#120). */
 export function apiBaseUrl(event: { platform?: App.Platform; url: URL }): Promise<string> {
@@ -92,8 +93,8 @@ export async function listCampaigns(
 		binds.push(opts.status);
 	}
 	if (opts.q) {
-		where.push("c.subject LIKE ? ESCAPE '\\'");
-		binds.push(`%${opts.q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`);
+		where.push(containsSql('c.subject')); // #485: no LIKE pattern cap
+		binds.push(opts.q);
 	}
 	const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 	const total = await db

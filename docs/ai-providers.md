@@ -61,7 +61,7 @@ Steps:
    from any error message (`scrubKey`).
 2. **Key.** Store it the way `src/lib/server/ai/key.ts` does: an `integration_secrets` row sealed
    with `MAIL_TOKEN_KEY`, a Worker secret fallback, and a case in `resolveProviderKey`. A new secret
-   goes in `.dev.vars.example` with an "Optional" comment.
+   goes in `.dev.vars.reference` with an "Optional" comment.
 3. **Registry.** Add the id to `PROVIDERS` / `PROVIDER_LABELS` in `src/lib/ai-models.ts` and a case
    in `providerFor` / `configuredProviders` (`src/lib/server/ai/providers.ts`). Its models are
    `ModelInfo` entries with `provider`, `apiModel`, `tools`, `streaming`, `efforts` and an optional

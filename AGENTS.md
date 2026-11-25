@@ -16,8 +16,10 @@ sent through Postmark. Everything runs on one Cloudflare account.
   Server routes (`+page.server.ts`, `+server.ts`) are the Worker; there is no separate API server.
 - **Cloudflare D1** (SQLite) for all data, binding `DB`. **R2** for media and backups, binding `MEDIA`.
 - **Postmark** for sending (a broadcast stream and a transactional stream) and for tracking webhooks.
-- A second tiny Worker in `heartbeat/` runs on a cron and calls the app's tick endpoint; the app
-  Worker itself has no scheduled handler.
+- The tick runs once a minute. A new install uses the app Worker's own clock: `npm run build` wraps
+  the SvelteKit build (`scripts/wrap-worker.mjs`) so the Worker has a `scheduled` handler that runs
+  the tick in-process, and `triggers.crons` fires it (#729). The older setup, a second tiny Worker in
+  `heartbeat/` that POSTs the tick endpoint with `CRON_KEY`, still works.
 - **Vanilla scoped CSS** in components plus global tokens in `src/app.css`. No Tailwind, no CSS
   framework. See [docs/design-notes.md](docs/design-notes.md).
 - The block editor is the npm package `@digisavvy/block-editor`. Editor changes belong in that
@@ -29,7 +31,7 @@ sent through Postmark. Everything runs on one Cloudflare account.
 ```sh
 npm install
 cp wrangler.example.jsonc wrangler.jsonc        # local D1 only needs the database_name
-cp .dev.vars.example .dev.vars                  # fill in SESSION_SECRET and SETUP_TOKEN at least
+cp .dev.vars.reference .dev.vars                # fill in SESSION_SECRET and SETUP_TOKEN at least
 npx wrangler d1 migrations apply <database_name> --local
 npm run dev                                     # http://localhost:5173
 ```
@@ -94,8 +96,9 @@ permissions or anything a scheduled tick runs.
 
 ```
 migrations/              D1 schema, numbered
-heartbeat/               the cron Worker that POSTs /api/automations/tick
-scripts/                 deploy, restore, CLI (dscrm.mjs); pure logic in *-lib.mjs
+heartbeat/               the optional cron Worker that POSTs /api/automations/tick
+scripts/                 deploy, restore, CLI (dscrm.mjs), wrap-worker (the build's scheduled
+                         handler, #729); pure logic in *-lib.mjs
 src/app.css              design tokens + base element styles
 src/hooks.server.ts      session auth, public-route list, CSRF/origin checks, security headers
 src/lib/                 code shared by server and browser (pure helpers, vocabulary)
@@ -153,7 +156,7 @@ These are hard rules. Tests guard most of them; don't weaken a test to get past 
   drafts, a person sends.
 - **Never commit secrets.** `.dev.vars`, `wrangler.jsonc` values you were given privately, API
   keys, tokens, passwords and contact exports (`*.csv`) stay out of git. New secrets are named in
-  `.dev.vars.example` with a required / optional comment and set in production with
+  `.dev.vars.reference` with a required / optional comment and set in production with
   `wrangler secret put`. Never print, log or echo a secret's value.
 - **Never send real email from development or tests.** Use Postmark's test token locally.
 - Only send to contacts who opted in; keep the unsubscribe link and `List-Unsubscribe` headers on

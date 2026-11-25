@@ -11,6 +11,7 @@ import { bouncedClause, spamClause } from './bounce-filter';
 import { proxyOpenSql } from './engagement';
 import { scoreBandClause, scoreValueClause } from './scoring/query';
 import { formSubmittedClause } from './form-reads';
+import { containsSql, notContainsSql } from './sql-match';
 
 export type SegmentRule = {
 	field: string; // 'tag' | 'field' | 'subscribed' | 'source' | 'company' | 'opened' | 'clicked' | 'created' | 'visited' | 'event'
@@ -52,9 +53,10 @@ function eventInWindow(type: 'open' | 'click', negate: boolean): string {
 }
 
 // Site tracking (#153): a pageview whose path contains `value`, or a named custom event,
-// optionally within the last N days. LIKE wildcards in the user's text are escaped.
+// optionally within the last N days. The path match is instr, not LIKE (#485: D1 caps LIKE
+// patterns at 50 bytes, and paths run long); `%` / `_` in the text are literal.
 function siteActivity(kind: 'pageview' | 'event', negate: boolean, windowed: boolean): string {
-	const match = kind === 'pageview' ? `COALESCE(se.path, '') LIKE ? ESCAPE '\\'` : 'se.name = ?';
+	const match = kind === 'pageview' ? containsSql("COALESCE(se.path, '')") : 'se.name = ?';
 	const inner = `SELECT 1 FROM site_events se WHERE se.contact_id = c.id AND se.kind = '${kind}' AND ${match}${
 		windowed ? ` AND se.occurred_at >= datetime('now', ?)` : ''
 	}`;
@@ -113,7 +115,7 @@ export function compileRule(r: SegmentRule): { clause: string; binds: unknown[] 
 
 		case 'source':
 			if (!v) return null;
-			if (r.op === 'contains') return { clause: 'LOWER(COALESCE(c.source, \'\')) LIKE ?', binds: [`%${v.toLowerCase()}%`] };
+			if (r.op === 'contains') return { clause: containsSql("COALESCE(c.source, '')"), binds: [v] }; // #485
 			return { clause: 'LOWER(COALESCE(c.source, \'\')) = ?', binds: [v.toLowerCase()] };
 
 		case 'company':
@@ -202,8 +204,7 @@ export function compileRule(r: SegmentRule): { clause: string; binds: unknown[] 
 			if (!v) return null;
 			const n = Math.floor(Number((r.value2 ?? '').trim()) || 0);
 			const windowed = n > 0;
-			const match = r.field === 'visited' ? `%${v.replace(/[\\%_]/g, (m) => `\\${m}`)}%` : v;
-			const binds: unknown[] = [match];
+			const binds: unknown[] = [v];
 			if (windowed) binds.push(`-${n} days`);
 			return { clause: siteActivity(r.field === 'visited' ? 'pageview' : 'event', r.op === 'not', windowed), binds };
 		}
@@ -215,10 +216,10 @@ export function compileRule(r: SegmentRule): { clause: string; binds: unknown[] 
 			if (!name || !v || (r.op !== 'contains' && r.op !== 'not')) return null;
 			const text = `LOWER(COALESCE(CASE WHEN json_valid(c.meta) THEN CAST(json_extract(c.meta, ?) AS TEXT) END, ''))`;
 			const path = `$."${name.replaceAll('"', '')}"`;
-			const needle = v.toLowerCase().replace(/[\\%_]/g, (m) => `\\${m}`);
+			// #485: instr, not LIKE (no 50-byte D1 pattern cap). `text` is never NULL.
 			return {
-				clause: `${text} ${r.op === 'not' ? 'NOT LIKE' : 'LIKE'} ? ESCAPE '\\'`,
-				binds: [path, `%${needle}%`]
+				clause: r.op === 'not' ? notContainsSql(text) : containsSql(text),
+				binds: [path, v]
 			};
 		}
 

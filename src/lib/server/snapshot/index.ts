@@ -1,4 +1,4 @@
-// The no-op stand-in for the SEO Snapshot feature (#608).
+// The no-op stand-in for the optional snapshot feature (#608).
 //
 // The public release has no src/lib/server/snapshot/ folder. It writes this file's content to
 // src/lib/server/snapshot/index.ts instead (docs/public-export.md), so every core import of

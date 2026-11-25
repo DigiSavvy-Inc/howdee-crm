@@ -1,4 +1,4 @@
-// The seam between core code and the SEO Snapshot feature (#608).
+// The seam between core code and the optional snapshot feature (#608).
 //
 // Core code reaches the feature only through `snapshot` from `$lib/server/snapshot` (the
 // folder's entry module, `snapshot/index.ts`). That object implements this interface. The

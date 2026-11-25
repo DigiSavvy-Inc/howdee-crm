@@ -4,6 +4,7 @@
 	// handles the result here (not via the host page's form prop). Cmd+Enter (Mac) / Ctrl+Enter sends.
 	// #387: "Draft reply" asks the assistant for a draft (streamed into the textarea); the
 	// person edits and sends it. Shown when Settings → Assistant allows it for this user.
+	import { onMount, untrack } from 'svelte';
 	import { enhance } from '$app/forms';
 	import { kbd } from '$lib/platform.svelte';
 	import { invalidateAll } from '$app/navigation';
@@ -23,7 +24,9 @@
 		type DraftTone
 	} from '$lib/draft-reply';
 
-	let { conv }: { conv: Conversation } = $props();
+	// #714: a suggestion's "Reply" step opens the thread with the box focused and its draft
+	// opening line in it (`initialBody`); nothing is sent until the person presses Send reply.
+	let { conv, initialBody = '', autofocus = false }: { conv: Conversation; initialBody?: string; autofocus?: boolean } = $props();
 
 	const canDraft = $derived(page.data.draftReply === true);
 	let tone = $state<DraftTone>('friendly');
@@ -102,7 +105,13 @@
 		draftAbort?.abort();
 	}
 
-	let body = $state('');
+	let body = $state(untrack(() => initialBody));
+	let textareaEl = $state<HTMLTextAreaElement>();
+	onMount(() => {
+		if (!autofocus || !textareaEl) return;
+		textareaEl.scrollIntoView({ block: 'center' });
+		textareaEl.focus({ preventScroll: true });
+	});
 	let tab = $state<'write' | 'preview'>('write');
 	let busy = $state(false);
 	let error = $state<string | null>(null);
@@ -171,6 +180,7 @@
 				rows="5"
 				required
 				placeholder="Write a reply…"
+				bind:this={textareaEl}
 				bind:value={body}
 				disabled={busy || drafting}
 				onkeydown={onKeydown}

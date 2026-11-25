@@ -110,7 +110,7 @@ export function applyWeekdayOnly(dueUtc: Date, tz: string): Date {
 }
 
 /**
- * SEO Snapshot clock (#190): the `days`-th business day (Mon–Fri) after the LOCAL calendar
+ * Delivery clock (#190): the `days`-th business day (Mon–Fri) after the LOCAL calendar
  * date of `fromUtc` in `tz`, at `hour`:00 local. The submit day itself never counts, so a
  * Friday-evening or weekend submit with days = 2 lands on Tuesday. No holidays.
  */

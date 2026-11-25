@@ -12,6 +12,7 @@
 	import { gmailThreadUrl } from '$lib/gmail-link';
 	import { relTime } from '$lib/reltime';
 	import { convState, STATE_LABEL, KIND_LABEL, listHref, threadHref } from '$lib/conversation-view';
+	import { readOpening } from '$lib/suggestions-panel';
 
 	let { data } = $props();
 
@@ -27,6 +28,9 @@
 	// #379: Archive returns to the list (the thread leaves it); Unarchive stays here.
 	const here = $derived(page.url.pathname + page.url.search);
 	let deleteOpen = $state(false);
+	// #714: a suggestion's Reply step (`?reply=1`, optional `&opening=` draft line) opens the box.
+	const replyRequested = $derived(page.url.searchParams.get('reply') === '1');
+	const replyOpening = $derived(readOpening(page.url.searchParams));
 </script>
 
 <svelte:head><title>{conv.subject} · Conversations</title></svelte:head>
@@ -104,7 +108,7 @@
 			{#if gmailUrl}<a href={gmailUrl} target="_blank" rel="noopener noreferrer">reply in Gmail</a>{:else}reply in Gmail{/if}.
 		</p>
 	{:else}
-		<ReplyComposer {conv} />
+		<ReplyComposer {conv} initialBody={replyOpening} autofocus={replyRequested} />
 	{/if}
 </section>
 

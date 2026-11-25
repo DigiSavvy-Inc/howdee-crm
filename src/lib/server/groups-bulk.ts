@@ -27,7 +27,7 @@ import { compileSegment, parseRules, type SegmentRules } from './segment-query';
 import { segmentAudienceSql } from './active-audience';
 import { snapshot } from './snapshot';
 
-/** The SEO Snapshot release tag (#608: via the feature seam; null when not installed). */
+/** The snapshot feature's release tag (#608: via the feature seam; null when not installed). */
 const APPROVED_TAG = snapshot.protectedTag;
 
 export const GROUP_CHUNK = 40;
@@ -587,7 +587,7 @@ export async function renameGroup(db: D1Database, id: number, rawName: string, k
 	if (!g || (kind && g.kind !== kind)) return { ok: false, error: 'That group no longer exists.' };
 	if (!isManageableKind(g.kind)) return { ok: false, error: 'Companies are renamed from the company page.' };
 	if (isApprovedTag(name) && !isApprovedTag(g.name)) {
-		return { ok: false, error: `Nothing can be renamed to “${APPROVED_TAG}” — it releases SEO snapshots.` };
+		return { ok: false, error: `Nothing can be renamed to “${APPROVED_TAG}” — it is a protected tag.` };
 	}
 	const clash = await findByName(db, g.kind, name, g.id);
 	if (clash) return { ok: false, error: `A ${g.kind} named “${clash.name}” already exists.` };
@@ -649,13 +649,13 @@ export async function mergeGroups(db: D1Database, target: MergeTarget, rawFromId
 		else into = { id: 0, name, created: true };
 	}
 	if (isApprovedTag(into.name)) {
-		return { ok: false, error: `Tags can't be merged into “${APPROVED_TAG}” — it releases SEO snapshots.` };
+		return { ok: false, error: `Tags can't be merged into “${APPROVED_TAG}” — it is a protected tag.` };
 	}
 
 	const sources = (await loadGroups(db, rawFromIds)).filter((g) => g.id !== into.id);
 	if (sources.some((g) => g.kind !== kind)) return { ok: false, error: `Only ${kind}s can be merged here.` };
 	if (sources.some((g) => isApprovedTag(g.name))) {
-		return { ok: false, error: `“${APPROVED_TAG}” can't be merged away — it releases SEO snapshots.` };
+		return { ok: false, error: `“${APPROVED_TAG}” can't be merged away — it is a protected tag.` };
 	}
 	if (sources.length === 0) return { ok: false, error: `Select at least one other ${kind} to merge.` };
 

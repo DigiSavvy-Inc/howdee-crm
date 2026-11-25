@@ -39,6 +39,7 @@ import { pipelineClause, type PipelineFilter } from '$lib/server/pipeline-query'
 import { compileSegment, parseRules, type SegmentRules } from '$lib/server/segment-query';
 import { visibleCampaignSql } from '$lib/server/system-mail';
 import { activeContactSql, segmentAudienceSql } from '$lib/server/active-audience';
+import { containsSql } from '$lib/server/sql-match';
 
 export type ReportColumn = {
 	key: string;
@@ -393,8 +394,8 @@ function companyWhere(spec: ReportSpec): Built {
 			parts.push('LOWER(co.name) = ?');
 			binds.push((filter.value ?? '').toLowerCase());
 		} else if (filter.field === 'name' && filter.op === 'contains') {
-			parts.push(`LOWER(co.name) LIKE ? ESCAPE '\\'`);
-			binds.push(likeContains((filter.value ?? '').toLowerCase()));
+			parts.push(containsSql('co.name')); // #485: instr, no LIKE pattern cap
+			binds.push(filter.value ?? '');
 		} else {
 			const cond = normalizeCondition(filter.field, filter.op, filter.value ?? '');
 			const clause = cond ? metricClause(cond, 'co.id') : null;
@@ -989,8 +990,8 @@ function siteWhere(spec: ReportSpec): Built {
 	}
 	for (const filter of spec.entityFilters ?? []) {
 		if (filter.field === 'path') {
-			parts.push(`COALESCE(se.path, '') LIKE ? ESCAPE '\\'`);
-			binds.push(likeContains(filter.value ?? ''));
+			parts.push(containsSql("COALESCE(se.path, '')")); // #485: paths run past LIKE's 50-byte cap
+			binds.push(filter.value ?? '');
 		} else if (filter.field === 'country') {
 			parts.push('LOWER(COALESCE(se.country, \'\')) = ?');
 			binds.push((filter.value ?? '').toLowerCase());
@@ -1275,10 +1276,6 @@ function medianPct(values: number[]): number | null {
 
 function jsonPath(key: string): string {
 	return `$."${key}"`;
-}
-
-function likeContains(value: string): string {
-	return `%${value.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
 }
 
 function aliasFor(key: string, index = 0): string {

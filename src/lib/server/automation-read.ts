@@ -6,6 +6,7 @@ import { labelsByAutomation } from './automation-labels';
 import { classifyProxyOpen } from './engagement';
 import { contactsMatchingRules } from './condition-eval';
 import { parseGateRules } from '$lib/condition-rules';
+import { containsSql } from './sql-match';
 
 export type AutomationListRow = {
 	id: number;
@@ -255,11 +256,11 @@ export async function enrollmentPage(
 	const binds: unknown[] = [automationId];
 	const q = (f.q ?? '').trim().toLowerCase();
 	if (q) {
-		const like = `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
+		// #485: instr, not LIKE (D1 caps LIKE patterns at 50 bytes).
 		where.push(
-			`(LOWER(c.email) LIKE ? ESCAPE '\\' OR LOWER(COALESCE(c.name, '')) LIKE ? ESCAPE '\\' OR LOWER(TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, ''))) LIKE ? ESCAPE '\\')`
+			`(${containsSql('c.email')} OR ${containsSql("COALESCE(c.name, '')")} OR ${containsSql("TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, ''))")})`
 		);
-		binds.push(like, like, like);
+		binds.push(q, q, q);
 	}
 	if (f.status && (ENROLLMENT_STATUSES as readonly string[]).includes(f.status)) {
 		where.push('e.status = ?');

@@ -144,7 +144,7 @@ describe('Contacts filters', () => {
 		const { where, params } = contactsWhere(parseContactsFilter(new URLSearchParams('visited=%27x&visited_days=30')));
 		expect(where).toContain('site_events');
 		expect(where).not.toContain("'x");
-		expect(params).toEqual(["%'x%", '-30 days']);
+		expect(params).toEqual(["'x", '-30 days']); // raw text, matched with instr (#485)
 	});
 
 	it('visited path contains … in the last N days', async () => {
@@ -172,7 +172,7 @@ describe('segment rules: visited / event', () => {
 	it('compiles to bound parameters', () => {
 		const c = compileSegment({ match: 'all', rules: [{ field: 'visited', op: 'in', value: '/pri_ing', value2: '14' }] });
 		expect(c.sql).toContain('site_events');
-		expect(c.binds).toEqual(['%/pri\\_ing%', '-14 days']);
+		expect(c.binds).toEqual(['/pri_ing', '-14 days']); // raw text, matched with instr (#485)
 		expect(compileSegment({ match: 'all', rules: [{ field: 'event', op: 'in', value: '' }] }).sql).not.toContain('site_events');
 	});
 

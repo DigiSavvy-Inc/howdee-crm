@@ -13,13 +13,10 @@ import { normalizeFormSpec } from '$lib/forms';
 import { compileRule, compileSegment, parseRules } from './segment-query';
 import { proxyOpenSql } from './engagement';
 import { submissionForRule } from './form-reads';
+import { containsSql, endsWithSql, notContainsSql } from './sql-match';
 
 export type CompiledRule = { clause: string; binds: unknown[] };
 type ListInfo = { kind: string; rules: string | null };
-
-function likeEscape(s: string): string {
-	return s.replace(/[\\%_]/g, (m) => `\\${m}`);
-}
 
 function positiveId(v: string | undefined): number | null {
 	const id = Number((v ?? '').trim());
@@ -63,10 +60,10 @@ export function compileConditionRule(r: ConditionRule, lists: Map<number, ListIn
 
 		case 'email': {
 			if (!v) return null;
-			const needle = likeEscape(v.toLowerCase());
-			if (r.op === 'contains') return { clause: "LOWER(c.email) LIKE ? ESCAPE '\\'", binds: [`%${needle}%`] };
-			if (r.op === 'not_contains') return { clause: "LOWER(c.email) NOT LIKE ? ESCAPE '\\'", binds: [`%${needle}%`] };
-			if (r.op === 'ends') return { clause: "LOWER(c.email) LIKE ? ESCAPE '\\'", binds: [`%${needle}`] };
+			// #485: instr / substr, not LIKE — D1 caps LIKE patterns at 50 bytes.
+			if (r.op === 'contains') return { clause: containsSql('c.email'), binds: [v] };
+			if (r.op === 'not_contains') return { clause: notContainsSql('c.email'), binds: [v] };
+			if (r.op === 'ends') return { clause: endsWithSql('c.email'), binds: [v, v, v] };
 			return null;
 		}
 

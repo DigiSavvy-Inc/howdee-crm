@@ -1,0 +1,77 @@
+# Every secret the app reads (#732). For local dev, copy this file to .dev.vars (gitignored) and
+# fill in local values. Names only — never commit secrets.
+# `wrangler types` reads secret names from .dev.vars, so keep every name below there.
+# .dev.vars.example is the short file the Deploy to Cloudflare button reads: only what an
+# installer must type (SETUP_TOKEN). The deploy generates the rest (docs/easy-install.md).
+# In production set each one with `npx wrangler secret put <NAME>`.
+# Non-secret config (POSTMARK_FROM, PUBLIC_BASE_URL, …) is in wrangler.jsonc "vars" — see
+# wrangler.example.jsonc for a new install.
+
+# Optional — break-glass sign-in with a shared server password (Auth). Unset = the form is gone.
+APP_PASSWORD=
+# Optional (#606) — first-run setup. While the users table is empty, /setup asks for this value
+# before it creates the first admin. Any long random string; once an admin exists /setup is a 404
+# and the secret can be deleted. Never log or commit the value.
+SETUP_TOKEN=
+# Required — signs sessions, unsubscribe / tracking / approve tokens. Long random string.
+SESSION_SECRET=
+# Required — Postmark Server API token (sending, suppressions, stream settings).
+POSTMARK_TOKEN=
+# Optional (#304) — Postmark account API token; Deliverability reads DKIM / Return-Path status
+# from the Domains API with it. Unset = no Domains API request; the DKIM row says to set it (#605).
+POSTMARK_ACCOUNT_TOKEN=
+# Required (#542) — the Postmark webhook returns 401 without it. For local webhook testing set
+# any value and pass it as ?key=<value> on /api/webhook.
+WEBHOOK_KEY=
+# Required — bearer key for /api/ingest and /api/contacts/upsert.
+INGEST_KEY=
+# Optional (#729) — gates the HTTP tick endpoint /api/automations/tick. Needed only with the
+# separate heartbeat Worker (must equal its CRON_KEY) or to run a tick by hand; the built-in
+# clock (triggers.crons; `npm run build` adds the scheduled handler) doesn't use it.
+# /api/health still requires it.
+CRON_KEY=
+# Optional — gates /api/inbound (reply capture); set on the Postmark inbound webhook as ?key=.
+INBOUND_KEY=
+# #381 — optional var (set it in wrangler.jsonc, not here): sender of the reply forwards to
+# INBOUND_FORWARD_TO, shown as "<Contact> via <app name>" (Settings → Branding). Must be on the sending domain (the
+# POSTMARK_FROM domain) or it is ignored. Unset/off-domain = REVIEW_FROM, then POSTMARK_FROM.
+# INBOUND_FORWARD_FROM=
+# Optional — fallback Luma webhook signing secret (whsec_…); the Settings value wins.
+LUMA_WEBHOOK_SECRET=
+# Required for GitHub sign-in — a GitHub OAuth App (one per environment; callback
+# <origin>/auth/github/callback). Unset = only password sign-in works.
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+# Optional — Settings → Integrations (#167) fallbacks; leave blank for "Not connected".
+TIMING_API_TOKEN=
+GITHUB_TOKEN=
+# Optional (#175) — 32 random bytes, base64url; seals tokens entered in Settings → Integrations,
+# the in-app Anthropic key and Gmail refresh tokens. Without it those token fields are disabled.
+MAIL_TOKEN_KEY=
+# Optional (#158) — Google OAuth client (Web application) for Settings → Mail → Connect Gmail.
+# Without both, the Mail page shows the setup steps and a disabled Connect button.
+# MAIL_TOKEN_KEY (above) seals the Gmail refresh token too.
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+# Optional (#246, #287) — Anthropic API key for the assistant and resend subject suggestions;
+# the fallback when no key is pasted in Settings → Assistant.
+ANTHROPIC_API_KEY=
+# Optional (#696) — key for an OpenAI-compatible provider (OpenAI, OpenRouter, a local server)
+# set up in Settings → Assistant; the fallback when no key is pasted there. Unset = Claude only.
+OPENAI_API_KEY=
+# Optional (#120) — Settings → Domain "Attach to this Worker" via the Cloudflare API.
+# Unset = the page shows the dashboard steps. Attaching also needs the CF_ACCOUNT_ID and
+# WORKER_NAME vars (below).
+CF_API_TOKEN=
+# #596 — deploy-specific vars. Set them in wrangler.jsonc "vars" (not secrets); uncomment here
+# only to override them for local dev.
+# Optional. The list /api/ingest and /api/luma use when the request (or the key / Settings)
+# names none. Unset = those requests are rejected with "No list configured".
+# DEFAULT_LIST_NAME=Newsletter
+# Optional. Cloudflare account id and this Worker's name, for Settings → Domain "Attach to this
+# Worker". Unset = attaching reports "Not configured".
+# CF_ACCOUNT_ID=
+# WORKER_NAME=
+# Optional. Comma-separated hosts whose Worker routes send /newsletter* here (newsletter archive
+# public host, #491). Keep in step with "routes" in wrangler.jsonc. Unset = none.
+# ARCHIVE_ROUTE_HOSTS=example.com

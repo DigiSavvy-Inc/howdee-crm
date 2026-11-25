@@ -1,6 +1,7 @@
 import type { RequestHandler } from './$types';
 import { verifyUnsub } from '$lib/server/token';
 import { unsubscribeAll } from '$lib/server/unsubscribe';
+import { getMailProvider } from '$lib/server/mail';
 
 // RFC 8058 one-click unsubscribe (#264): the `List-Unsubscribe` header URL on broadcast
 // sends. Mailbox providers POST `List-Unsubscribe=One-Click` here cross-site with no
@@ -17,7 +18,7 @@ export const POST: RequestHandler = async (event) => {
 		if (!db) return new Response('Unavailable.', { status: 503, headers: plain });
 		await unsubscribeAll(
 			db,
-			{ token: event.platform?.env?.POSTMARK_TOKEN, stream: event.platform?.env?.POSTMARK_STREAM },
+			await getMailProvider(db, event.platform?.env),
 			payload,
 			'one-click',
 			null,

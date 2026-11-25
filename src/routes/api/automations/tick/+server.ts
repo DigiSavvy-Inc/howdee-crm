@@ -1,8 +1,9 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { getDB, env } from '$lib/server/db';
+import { getDB, env, FINISH_SETUP_SENDING, mailToken, sendingUnconfigured } from '$lib/server/db';
 import { publicBaseUrlFor } from '$lib/server/public-url';
 import { safeEqual } from '$lib/server/auth';
 import { tick } from '$lib/server/automations';
+import { providerFor, resolveMailCredentials } from '$lib/server/mail';
 import { processEnrollQueue } from '$lib/server/automation-enroll';
 import { processSegmentTriggers } from '$lib/server/segment-trigger';
 import { processScheduledCampaigns, processScheduledResends } from '$lib/server/scheduled';
@@ -21,6 +22,7 @@ import { processBestTimeQueue } from '$lib/server/best-time';
 import { runSuppressionSyncAfterSend, runSuppressionSyncDaily } from '$lib/server/suppression-sync';
 import { runDueJobs } from '$lib/server/ai/jobs';
 import { jobEmailSender } from '$lib/server/job-email-send';
+import { holdNotifier } from '$lib/server/preflight';
 import { pruneAssistantHistory } from '$lib/server/ai/prune';
 import { runAccountBriefs } from '$lib/server/ai/account-brief';
 import { runDomainAuthDaily, type DomainAuthEnv } from '$lib/server/domain-auth';
@@ -28,6 +30,8 @@ import { runHygieneBackfill } from '$lib/server/hygiene';
 import { runBackupTick } from '$lib/server/backups';
 import { runDeliverabilityChecks } from '$lib/server/deliverability-alerts';
 import { snapshotReportHistory } from '$lib/server/reports/history';
+import { runSuggestions } from '$lib/server/suggestions/engine';
+import { CLOCK_KEY, SENDS_SKIPPED_KEY, SKIP_KEY, TICK_SKIPPED_NO_PUBLIC_URL, TICK_SKIPPED_NO_SENDING, isInternalOrigin, isInternalTick } from '$lib/server/internal-tick';
 
 /**
  * Heartbeat entrypoint for the automation engine (#5). The external heartbeat Worker
@@ -36,24 +40,71 @@ import { snapshotReportHistory } from '$lib/server/reports/history';
  * Auth: a shared `CRON_KEY` secret, supplied as `Authorization: Bearer <key>` or
  * `?key=<key>` (mirrors the webhook's key gate). JSON response, so SvelteKit's CSRF
  * origin check doesn't apply. Route is in PUBLIC_PREFIXES (machine-called, not session-authed).
+ *
+ * #729: the app's own Cron Trigger (the wrapped `_worker.js`, scripts/wrap-worker.mjs) calls this
+ * route in-process with a Symbol marker on the env (`isInternalTick`), which no HTTP request can
+ * carry; that call skips the key. Every other request goes through the CRON_KEY check exactly as
+ * before. An internal tick with no public address (no Settings → Domain value, no PUBLIC_BASE_URL)
+ * runs nothing: its links would point at the internal origin (see below).
  */
 export const POST: RequestHandler = async (event) => {
-	const key = env(event, 'CRON_KEY');
-	const provided =
-		(event.request.headers.get('authorization') ?? '').replace(/^Bearer\s+/i, '') ||
-		(event.url.searchParams.get('key') ?? '');
-	if (!safeEqual(provided, key)) {
-		return json({ error: 'unauthorized' }, { status: 401 });
+	const internal = isInternalTick(event.platform?.env);
+	if (!internal) {
+		const key = env(event, 'CRON_KEY');
+		const provided =
+			(event.request.headers.get('authorization') ?? '').replace(/^Bearer\s+/i, '') ||
+			(event.url.searchParams.get('key') ?? '');
+		if (!safeEqual(provided, key)) {
+			return json({ error: 'unauthorized' }, { status: 401 });
+		}
 	}
 
 	const db = getDB(event);
+
+	const recordSkip = (reason: string) =>
+		db
+			.prepare(
+				`INSERT INTO app_state (key, value, updated_at) VALUES (?, ?, datetime('now'))
+				 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+			)
+			.bind(SKIP_KEY, reason)
+			.run();
+
+	// #729: fail closed on links. The internal request's origin is https://scheduled.invalid. #731:
+	// `publicBaseUrlFor` now resolves Settings → Domain, PUBLIC_BASE_URL, then the origin stored at
+	// first-run setup (`public_base_url_seen`), so the built-in clock builds real links on a fresh
+	// install. Only with none of the three does it still land on the internal origin: run no job
+	// then, say why (Settings → Setup shows it).
+	const baseUrl = await publicBaseUrlFor(event);
+	if (internal && isInternalOrigin(baseUrl)) {
+		console.error('automation tick (cron) skipped: no public URL (open Settings → Setup, or set Settings → Domain or PUBLIC_BASE_URL)');
+		await recordSkip(TICK_SKIPPED_NO_PUBLIC_URL);
+		return json({ ok: false, skipped: TICK_SKIPPED_NO_PUBLIC_URL });
+	}
+
+	// #700: every send in this tick goes through the active sending provider (Settings →
+	// Sending, else the Worker env). A token saved in Settings that can't be read 500s the tick
+	// (mailToken), instead of sending with the env token.
+	// #731: with no sending credentials at all (the provider resolution finds no provider and
+	// nothing saved is unreadable: a fresh install before the wizard's Connect step), every job
+	// that sends email is skipped — scheduled campaigns stay `scheduled` and unclaimed, best-time,
+	// resends and snapshot reports wait, automation email steps hold ("Finish setup", attempts
+	// untouched), job reports aren't emailed — while every housekeeping job runs and `last_tick`
+	// is stamped. The answer is a 200 with `skipped_sends`, so the heartbeat Worker logs it as ok;
+	// Settings → Setup shows a "Scheduled work" row. With credentials, nothing here changes.
+	const mailCreds = await resolveMailCredentials(db, event.platform?.env);
+	const mailProvider = providerFor(event.platform?.env, mailCreds);
+	const sendsOff = sendingUnconfigured(mailProvider, mailCreds);
 	const cfg = {
-		token: env(event, 'POSTMARK_TOKEN'),
+		token: sendsOff ? '' : mailToken(event, mailCreds),
+		provider: mailProvider,
 		secret: env(event, 'SESSION_SECRET'),
-		baseUrl: await publicBaseUrlFor(event),
-		stream: env(event, 'POSTMARK_STREAM'),
-		inboundAddress: event.platform?.env?.POSTMARK_INBOUND_ADDRESS || undefined
+		baseUrl,
+		stream: mailCreds.postmark.stream,
+		inboundAddress: event.platform?.env?.POSTMARK_INBOUND_ADDRESS || undefined,
+		envFrom: event.platform?.env?.POSTMARK_FROM || undefined
 	};
+	const skippedSend = { skipped: TICK_SKIPPED_NO_SENDING };
 
 	// Optional batch override (?batch=N), otherwise the engine default.
 	const batchParam = Number(event.url.searchParams.get('batch'));
@@ -105,28 +156,38 @@ export const POST: RequestHandler = async (event) => {
 	}
 
 	// Scheduled broadcasts (#35) ride the same heartbeat.
-	const scheduled = await guard('scheduled campaigns', () => processScheduledCampaigns(db, cfg));
+	// #479: links are checked again when a scheduled send fires; a held send notifies the alert
+	// webhook and (when set) emails the admins, from the notice pass after the send loop.
+	const scheduled = sendsOff
+		? skippedSend
+		: await guard('scheduled campaigns', async () =>
+				await processScheduledCampaigns(db, cfg, {
+					onHold: holdNotifier(db, cfg.baseUrl, jobEmailSender(db, event.platform?.env ?? {}, cfg.baseUrl))
+				})
+			);
 
 	// Best-time sends (#115): due queued recipients go out each minute. Runs right after
 	// the scheduled pass so a just-fired campaign's default cohort sends this tick.
 	let bestTime;
 	try {
-		bestTime = await processBestTimeQueue(db, cfg);
+		bestTime = sendsOff ? skippedSend : await processBestTimeQueue(db, cfg);
 	} catch (e) {
 		console.error('best-time queue failed:', (e instanceof Error ? e.message : String(e)).slice(0, 200));
 		bestTime = { error: 'best-time queue failed' };
 	}
 
 	// Scheduled auto-resends to non-openers (#82) ride the same heartbeat.
-	const resends = await guard('scheduled resends', () => processScheduledResends(db, cfg));
+	const resends = sendsOff ? skippedSend : await guard('scheduled resends', () => processScheduledResends(db, cfg));
 
-	// SEO Snapshot jobs (#95) ride the same heartbeat. The heartbeat Worker is unchanged.
+	// Snapshot jobs (#95) ride the same heartbeat. The heartbeat Worker is unchanged.
 	// #604: SNAPSHOT_MODE unset / off = the snapshot pipeline does nothing at all.
-	const snapshots = snapshot.enabled(event.platform?.env)
-		? await guard('snapshots', () =>
-				snapshot.tick(db, event.platform?.env, { postmarkToken: cfg.token, sessionSecret: cfg.secret, baseUrl: cfg.baseUrl })
-			)
-		: { off: true };
+	const snapshots = sendsOff
+		? skippedSend
+		: snapshot.enabled(event.platform?.env)
+			? await guard('snapshots', () =>
+					snapshot.tick(db, event.platform?.env, { postmarkToken: cfg.token, sessionSecret: cfg.secret, baseUrl: cfg.baseUrl })
+				)
+			: { off: true };
 
 	// Contact engagement rollup (#111/#113): full recompute once/24h (also the first-run
 	// backfill), draining up to 150 dirty contacts per tick otherwise. Isolated so a
@@ -217,10 +278,10 @@ export const POST: RequestHandler = async (event) => {
 	}
 
 	// Postmark suppression sync (#285): once per 24h. Logs and never throws.
-	const suppressionCreds = {
+	const suppressionCreds = mailProvider ?? {
 		token: cfg.token,
 		stream: cfg.stream,
-		txStream: event.platform?.env?.POSTMARK_STREAM_TX || undefined
+		txStream: mailCreds.postmark.txStream || undefined
 	};
 	const suppressions = await guard('suppression sync', () => runSuppressionSyncDaily(db, suppressionCreds));
 	// #570: plus once per broadcast, ~15 minutes after it was sent. Logs and never throws.
@@ -231,8 +292,14 @@ export const POST: RequestHandler = async (event) => {
 	let aiJobs;
 	try {
 		// #390: an email job's report goes to admins through the injected sender (never a tool).
+		// #731: with no sending credentials a job that delivers by email doesn't run at all (no
+		// model spend, stays due); webhook-only jobs run as usual. The sender below is only a
+		// backstop and never reached for an email job then.
 		aiJobs = await runDueJobs(db, event.platform?.env ?? {}, {
-			emailSender: jobEmailSender(db, event.platform?.env ?? {}, await publicBaseUrlFor(event))
+			emailOff: sendsOff,
+			emailSender: sendsOff
+				? async () => ({ status: 'failed' as const, sent: 0, error: FINISH_SETUP_SENDING })
+				: jobEmailSender(db, event.platform?.env ?? {}, await publicBaseUrlFor(event))
 		});
 	} catch (e) {
 		console.error('assistant jobs failed:', (e instanceof Error ? e.message : String(e)).slice(0, 200));
@@ -288,14 +355,25 @@ export const POST: RequestHandler = async (event) => {
 		reportHistory = { error: 'report history failed' };
 	}
 
-	// Record the tick for liveness detection (#26) — the dashboard warns when this goes stale.
-	await db
-		.prepare(
-			`INSERT INTO app_state (key, value, updated_at) VALUES ('last_tick', ?, datetime('now'))
-			 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
-		)
-		.bind(JSON.stringify({ ...(Object.keys(jobErrors).length ? { errors: jobErrors } : {}), ...summary, scheduled, resends, snapshots, engagement }).slice(0, 500))
-		.run();
+	// Suggestions (#712): the rules pass, at most hourly, ≤ 200 writes per tick. Off = no work.
+	// Rules only — no model call, nothing sent, scheduled, activated or enrolled.
+	const suggestions = await guard('suggestions', () => runSuggestions(db));
 
-	return json({ ok: true, errors: jobErrors, ...summary, enrollQueue, segmentTriggers, scheduled, bestTime, resends, snapshots, engagement, scoring, scoreTriggers, siteEvents, loginAttempts, formSubmissions, doubleOptin, integrations, mail, suppressions, suppressionsAfterSend, aiJobs, aiPrune, accountBriefs, domainAuth, hygiene, backup, deliverability, reportHistory });
+	// Record the tick for liveness detection (#26) — the dashboard warns when this goes stale.
+	// #729: which clock ran it goes under its own key (`cron` = the app's own Cron Trigger, `http` =
+	// the CRON_KEY endpoint), since the summary is cut at 500 chars. Same batch, same moment; the
+	// skip marker of an earlier no-public-URL tick goes with it.
+	// #731: `skipped_sends` leads the stored summary (so the 500-char cut never drops it) and has
+	// its own key, which Settings → Setup reads; a tick with credentials clears that key.
+	const upsert = `INSERT INTO app_state (key, value, updated_at) VALUES (?, ?, datetime('now'))
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`;
+	const sendsNote = sendsOff ? { skipped_sends: TICK_SKIPPED_NO_SENDING } : {};
+	await db.batch([
+		db.prepare(upsert).bind('last_tick', JSON.stringify({ ...sendsNote, ...(Object.keys(jobErrors).length ? { errors: jobErrors } : {}), ...summary, scheduled, resends, snapshots, engagement }).slice(0, 500)),
+		db.prepare(upsert).bind(CLOCK_KEY, internal ? 'cron' : 'http'),
+		db.prepare(`DELETE FROM app_state WHERE key = ?`).bind(SKIP_KEY),
+		sendsOff ? db.prepare(upsert).bind(SENDS_SKIPPED_KEY, TICK_SKIPPED_NO_SENDING) : db.prepare(`DELETE FROM app_state WHERE key = ?`).bind(SENDS_SKIPPED_KEY)
+	]);
+
+	return json({ ok: true, ...sendsNote, errors: jobErrors, ...summary, enrollQueue, segmentTriggers, scheduled, bestTime, resends, snapshots, engagement, scoring, scoreTriggers, siteEvents, loginAttempts, formSubmissions, doubleOptin, integrations, mail, suppressions, suppressionsAfterSend, aiJobs, aiPrune, accountBriefs, domainAuth, hygiene, backup, deliverability, reportHistory, suggestions });
 };

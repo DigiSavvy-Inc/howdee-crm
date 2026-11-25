@@ -5,6 +5,7 @@ import { activeMemberCount, activeOnly, memberCount, memberIds, type ListRow } f
 import { parseRules } from '../../segment-query';
 import { contactBriefs } from './contacts';
 import { LIMIT_PROP, ToolInputError, intArg, limitArg, strArg, type Tool } from './types';
+import { containsSql } from '../../sql-match';
 
 const KINDS = ['list', 'segment', 'tag', 'company'] as const;
 
@@ -34,10 +35,10 @@ export const groupTools: Tool[] = [
 			const rows = await ctx.db
 				.prepare(
 					`SELECT id, kind, name, description, created_at, rules, archived_at FROM lists
-					 WHERE kind = ? AND (? = 1 OR archived_at IS NULL) AND (? = '' OR name LIKE ? ESCAPE '\\')
+					 WHERE kind = ? AND (? = 1 OR archived_at IS NULL) AND (? = '' OR ${containsSql('name')})
 					 ORDER BY name COLLATE NOCASE LIMIT 100`
 				)
-				.bind(kind, includeArchived ? 1 : 0, q, `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`)
+				.bind(kind, includeArchived ? 1 : 0, q, q) // #485: instr, no LIKE pattern cap
 				.all<GroupRow>();
 			const groups = [];
 			for (const r of rows.results) {

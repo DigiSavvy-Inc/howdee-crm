@@ -321,6 +321,29 @@ describe('heartbeat', () => {
 		expect(await briefCandidates(db, new Date(), 100)).not.toContain(ids.busy);
 	});
 
+	it('#729: a second concurrent run does nothing while the first holds the lease', async () => {
+		const { provider, calls } = fakeProvider(GOOD);
+		const lease = new Date(Date.now() + 5 * 60_000).toISOString();
+		await db
+			.prepare(
+				`INSERT INTO app_state (key, value, updated_at) VALUES ('account_briefs_lock', ?, datetime('now'))
+				 ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+			)
+			.bind(lease)
+			.run();
+		const before = (await db.prepare('SELECT COUNT(*) AS n FROM company_briefs').first<{ n: number }>())!.n;
+		const s = await runAccountBriefs(db, {}, { provider });
+		expect(s).toEqual({ generated: 0, unchanged: 0, errors: 0, skipped: 'locked' });
+		expect(calls).toHaveLength(0);
+		expect((await db.prepare('SELECT COUNT(*) AS n FROM company_briefs').first<{ n: number }>())!.n).toBe(before);
+		expect((await db.prepare(`SELECT value FROM app_state WHERE key = 'account_briefs_lock'`).first<{ value: string }>())!.value).toBe(lease);
+
+		// The lease holder releases it when its pass ends; then a run goes ahead.
+		await db.prepare(`UPDATE app_state SET value = '' WHERE key = 'account_briefs_lock'`).run();
+		expect((await runAccountBriefs(db, {}, { provider })).skipped).toBeUndefined();
+		expect((await db.prepare(`SELECT value FROM app_state WHERE key = 'account_briefs_lock'`).first<{ value: string }>())!.value).toBe('');
+	});
+
 	it('does nothing while the assistant is off or without a key', async () => {
 		await saveAssistantConfig(db, { access: 'off' });
 		expect((await runAccountBriefs(db, {})).skipped).toBe('assistant off');

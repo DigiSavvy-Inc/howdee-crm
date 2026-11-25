@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { env } from 'cloudflare:test';
 import { describeAudience, audienceLabel, loadAudience, type AudienceInput } from '../src/lib/server/audience';
 
-// #118: who a list-less campaign (direct / SEO Snapshot review / automation step) went to.
+// #118: who a list-less campaign (direct / review email / automation step) went to.
 const db = (env as any).DB as D1Database;
 
 const BASE: AudienceInput = {

@@ -5,6 +5,7 @@
 
 import { parseGateRules } from '$lib/condition-rules';
 import { parseRules } from './segment-query';
+import { containsSql } from './sql-match';
 
 /** Picker label of an archived group that is still referenced. */
 export function archivedName(name: string): string {
@@ -52,8 +53,8 @@ export async function listGroupsForApi(
 	if (!opts.includeArchived) where.push('archived_at IS NULL');
 	const q = (opts.q ?? '').trim();
 	if (q) {
-		where.push("name LIKE ? ESCAPE '\\'");
-		binds.push(`%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`);
+		where.push(containsSql('name')); // #485: instr, no LIKE pattern cap
+		binds.push(q);
 	}
 	const sql = where.join(' AND ');
 	const total = (await db.prepare(`SELECT COUNT(*) AS n FROM lists WHERE ${sql}`).bind(...binds).first<{ n: number }>())?.n ?? 0;

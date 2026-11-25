@@ -197,6 +197,19 @@ describe('Sync from Postmark (Deliverability) and the daily run', () => {
 		expect(await runSuppressionSyncDaily(db, {}, now)).toEqual({ skipped: 'not configured' });
 	});
 
+	it('#729: two clocks ticking at once run the daily sync once', async () => {
+		await contact('twice@b.test');
+		mockPostmark({ broadcast: [{ EmailAddress: 'twice@b.test', SuppressionReason: 'HardBounce' }] });
+		const now = Date.parse('2026-10-18T12:00:00Z');
+		const results = await Promise.all([runSuppressionSyncDaily(db, creds, now), runSuppressionSyncDaily(db, creds, now)]);
+		const ran = results.filter((r) => 'ok' in r);
+		expect(ran).toHaveLength(1);
+		expect(results.filter((r) => 'skipped' in r)).toEqual([{ skipped: 'ran in the last 24h' }]);
+		// Whichever read first, only one call wins the compare-and-set on the stamp.
+		const stamp = await db.prepare(`SELECT value FROM app_state WHERE key = 'suppression_sync_cron_at'`).first<{ value: string }>();
+		expect(stamp?.value).toBe(new Date(now).toISOString());
+	});
+
 	it('runSuppressionSync does not store a failed run', async () => {
 		mockPostmark({}, { down: true });
 		await runSuppressionSync(db, creds, 'manual');

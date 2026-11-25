@@ -6,6 +6,7 @@ import { changeOwnPassword } from '$lib/server/account-password';
 import { verifyPassword } from '$lib/server/password';
 import { recordRequest, requestIp, requestLimited, sendVerification, type AccountEnv } from '$lib/server/account-tokens';
 import { isEmail } from '$lib/csv';
+import { setSuggestionsPanel, suggestionsPanelOn } from '$lib/server/suggestions/panel-pref';
 
 // #211: every signed-in user's own account — profile + set/change password.
 export const load: PageServerLoad = async (event) => {
@@ -26,12 +27,27 @@ export const load: PageServerLoad = async (event) => {
 			mustChange: !!row.must_change_password,
 			email: row.email,
 			emailVerified: !!row.email_verified_at
-		}
+		},
+		// #715: Show the suggestions panel (users.suggestions_panel, default on).
+		suggestionsPanel: await suggestionsPanelOn(getDB(event), me.id)
 	};
 };
 
 export const actions: Actions = {
 	password: changeOwnPassword,
+
+	// #715: show or hide the suggestions panel for yourself only. The suggestions still exist for
+	// the rest of the team; the panel and its count read this through `suggestionViewer`.
+	suggestionsPanel: async (event) => {
+		const me = event.locals?.user ?? null;
+		if (!me) return fail(401, { panelError: 'Sign in first.' });
+		const data = await event.request.formData();
+		const on = data.get('show') === '1';
+		if (!(await setSuggestionsPanel(getDB(event), me.id, on))) {
+			return fail(503, { panelError: 'This setting needs the latest database migration first.' });
+		}
+		return { panelOk: on ? 'The suggestions panel is on for you.' : 'The suggestions panel is hidden for you.' };
+	},
 
 	// #639: change your own email. Needs your current password when you have one (the address
 	// is where resets go). The new address is unverified until its link is opened.

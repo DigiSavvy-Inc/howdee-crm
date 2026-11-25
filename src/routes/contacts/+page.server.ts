@@ -3,6 +3,7 @@ import type { PageServerLoad } from './$types';
 import Papa from 'papaparse';
 import { unguardCsvCell } from '$lib/csv';
 import { getDB } from '$lib/server/db';
+import { getMailProvider } from '$lib/server/mail';
 import { isEmail } from '$lib/csv';
 import { hygieneInvalid, type Hygiene } from '$lib/email-hygiene';
 import { recordHygieneMany } from '$lib/server/hygiene';
@@ -454,7 +455,7 @@ async function bulkForm(event: RequestEvent, data: FormData, action: BulkFormAct
 	const db = getDB(event);
 	const out = await runBulkForm(db, data, action, {
 		query: () => contactsFilterQuery(db, data),
-		postmark: { token: event.platform?.env?.POSTMARK_TOKEN, stream: event.platform?.env?.POSTMARK_STREAM, txStream: event.platform?.env?.POSTMARK_STREAM_TX },
+		postmark: await getMailProvider(db, event.platform?.env),
 		actor: event.locals?.user?.github_login
 	});
 	if (!out.ok) return fail(out.status, { bulkError: out.error });

@@ -32,7 +32,8 @@ import { addTagAndEnroll, autoEnroll, syncCompanyMembership } from './contacts';
 import { restoreIfArchived } from './contact-archive';
 import { checkAddress, recordHygiene, type MxLookup } from './hygiene';
 import { saveTopicChoicesAndFire } from './subscription-trigger';
-import { isHardSuppression, suppressionsByEmail, suppressionStreams, sendBatch, type PostmarkMessage } from './postmark';
+import { getMailProvider, isHardSuppression, type PostmarkMessage } from './mail';
+import type { LegacySend } from './reply-forward';
 import { formatAddress, forwardFallbackAddress, forwardSenderAddress, sendReplyForward } from './reply-forward';
 import { attachFormSubmission, needsConfirmation, requestConfirmation } from './double-optin';
 import { fireFormTriggers } from './form-trigger';
@@ -78,7 +79,7 @@ export type SubmitContext = {
 	now?: Date;
 	/** Test seams. */
 	mxLookup?: MxLookup;
-	send?: typeof sendBatch;
+	send?: LegacySend;
 	/** #620: the form webhook POST. */
 	fetch?: typeof fetch;
 	/** #620: `platform.ctx.waitUntil` — the webhook then runs after the response. Absent = awaited. */
@@ -234,10 +235,11 @@ export function finishFor(
  * HardBounce / SpamComplaint suppression for it (#285), when no email is sent (the confirm
  * itself runs the same guard again).
  */
-async function hardSuppressed(env: SubmitEnv, email: string): Promise<boolean> {
-	if (!env.POSTMARK_TOKEN) return false;
+async function hardSuppressed(db: D1Database, env: SubmitEnv, email: string): Promise<boolean> {
+	const mail = await getMailProvider(db, env);
+	if (!mail?.suppressions) return false;
 	try {
-		const { map } = await suppressionsByEmail(env.POSTMARK_TOKEN, suppressionStreams(env.POSTMARK_STREAM, env.POSTMARK_STREAM_TX));
+		const { map } = await mail.suppressions.byEmail();
 		const s = map.get(email.toLowerCase());
 		return !!s && isHardSuppression(s.reason);
 	} catch {
@@ -253,7 +255,7 @@ async function confirmationRoute(db: D1Database, env: SubmitEnv, form: FormRow, 
 	if (!form.spec.settings.double_optin && !wantsResub) return null;
 	if (form.spec.settings.double_optin && !(await needsConfirmation(db, email))) return null;
 	// Without double opt-in a blocked address keeps the normal write (it stays unsubscribed).
-	if (!form.spec.settings.double_optin && (await hardSuppressed(env, email))) return null;
+	if (!form.spec.settings.double_optin && (await hardSuppressed(db, env, email))) return null;
 	return wantsResub ? 'resubscribe needs confirmation' : '';
 }
 
@@ -482,10 +484,12 @@ export async function notifySubmission(
 	env: SubmitEnv,
 	form: FormRow,
 	sub: { id: number; email: string | null; contactId: number | null; answers: Answers; fields: FormField[] },
-	opts: { baseUrl?: string; send?: typeof sendBatch; /** #514: users from fired `notify` actions. */ userIds?: number[] } = {}
+	opts: { baseUrl?: string; send?: LegacySend; /** #514: users from fired `notify` actions. */ userIds?: number[] } = {}
 ): Promise<number> {
 	const ids = [...new Set([...form.spec.settings.notify_user_ids, ...(opts.userIds ?? [])])];
-	if (!ids.length || !env.POSTMARK_TOKEN) return 0;
+	if (!ids.length) return 0;
+	const mail = await getMailProvider(db, env);
+	if (!mail) return 0;
 	const sender = forwardSenderAddress(env as Record<string, string | undefined>);
 	if (!sender) return 0;
 	const users = await db
@@ -524,11 +528,11 @@ export async function notifySubmission(
 			Subject: `New submission: ${form.name}`,
 			TextBody: text,
 			HtmlBody: html,
-			MessageStream: env.POSTMARK_STREAM_TX || 'outbound',
+			MessageStream: mail.streams.transactional,
 			TrackOpens: false,
 			TrackLinks: 'None'
 		};
-		const r = await sendReplyForward(env.POSTMARK_TOKEN, message, sender, forwardFallbackAddress(env as Record<string, string | undefined>), opts.send);
+		const r = await sendReplyForward(opts.send ? (env.POSTMARK_TOKEN ?? '') : mail, message, sender, forwardFallbackAddress(env as Record<string, string | undefined>), opts.send);
 		if (r.ok) sent++;
 		else console.error('form notification failed:', r.error);
 	}

@@ -17,6 +17,7 @@ import {
 import { csvCell } from '$lib/report-view';
 import { pruneRateLimits } from './rate-limit';
 import { b64urlEncode, hmac, timingSafeEqual, b64urlDecode } from './token';
+import { containsSql } from './sql-match';
 
 export type FormStatus = 'draft' | 'published' | 'archived';
 
@@ -325,9 +326,9 @@ function submissionWhere(formId: number, f: SubmissionFilter): { sql: string; bi
 	}
 	const q = (f.q ?? '').trim();
 	if (q) {
-		const like = `%${q.replace(/[\\%_]/g, (m) => '\\' + m)}%`;
-		parts.push("(s.email LIKE ? ESCAPE '\\' OR s.answers LIKE ? ESCAPE '\\')");
-		binds.push(like, like);
+		// #485: instr, not LIKE (D1 caps LIKE patterns at 50 bytes).
+		parts.push(`(${containsSql('s.email')} OR ${containsSql('s.answers')})`);
+		binds.push(q, q);
 	}
 	return { sql: parts.join(' AND '), binds };
 }

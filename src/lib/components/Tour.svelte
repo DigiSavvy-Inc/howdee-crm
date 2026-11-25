@@ -8,8 +8,10 @@
 	import { fade, fly } from 'svelte/transition';
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { tour, closeTour, startTour } from '$lib/tour.svelte';
 	import { STEPS } from '$lib/tour-steps';
+	import { tourShouldAutoStart } from '$lib/tour-start';
 	import { DEFAULT_APP_NAME } from '$lib/branding';
 
 	let { tourSeen, isAdmin, appName = DEFAULT_APP_NAME }: { tourSeen: boolean; isAdmin: boolean; appName?: string } = $props();
@@ -121,25 +123,33 @@
 		}
 	});
 
-	onMount(() => {
-		let timer: ReturnType<typeof setTimeout> | undefined;
-		if (!tourSeen) {
-			let seenLocal = false;
-			try {
-				seenLocal = !!localStorage.getItem('tour:v1');
-			} catch {
-				// localStorage unavailable (private mode, etc.) — fall back to auto-opening.
-			}
-			if (!seenLocal) {
-				timer = setTimeout(() => startTour(), 600);
-			}
+	// #731: auto-open once, but never over the first-run setup wizard. The layout stays mounted
+	// across client-side navigation, so this re-checks on every URL change and opens on the
+	// first other page the person reaches.
+	let autoStarted = false;
+	$effect(() => {
+		const url = page.url;
+		if (autoStarted || tourSeen) return;
+		let seenLocal = false;
+		try {
+			seenLocal = !!localStorage.getItem('tour:v1');
+		} catch {
+			// localStorage unavailable (private mode, etc.) — fall back to auto-opening.
 		}
+		if (!tourShouldAutoStart({ tourSeen, seenLocal, url })) return;
+		const timer = setTimeout(() => {
+			autoStarted = true;
+			if (!tour.open) startTour(); // already opened from "Take the tour": leave it where it is
+		}, 600);
+		return () => clearTimeout(timer);
+	});
+
+	onMount(() => {
 		const onResize = () => updatePosition(false);
 		const onScroll = () => updatePosition(false);
 		window.addEventListener('resize', onResize);
 		window.addEventListener('scroll', onScroll, { passive: true });
 		return () => {
-			if (timer) clearTimeout(timer);
 			window.removeEventListener('resize', onResize);
 			window.removeEventListener('scroll', onScroll);
 		};

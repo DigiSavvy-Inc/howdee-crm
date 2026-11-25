@@ -14,9 +14,10 @@
  * daily heartbeat stamp is `app_state.suppression_sync_cron_at`.
  */
 
-import { BULK_CHUNK, unsubscribeIds, type PostmarkCreds } from './contact-bulk';
-import { suppressionsByEmail, suppressionStreams } from './postmark';
+import { BULK_CHUNK, unsubscribeIds, type SuppressionSource } from './contact-bulk';
+import { asMailProvider } from './mail';
 import { subscriptionChanged } from './subscription-trigger';
+import { casAppState } from './app-state-claim';
 
 export type SuppressionSyncResult = {
 	checked: number; // distinct suppressed addresses read from Postmark
@@ -52,10 +53,11 @@ function chunk<T>(arr: T[], size: number): T[][] {
 }
 
 /** One sync pass. Never throws on a Postmark failure — that comes back as `ok: false`. */
-export async function syncSuppressions(db: D1Database, creds: PostmarkCreds): Promise<SuppressionSyncOutcome> {
-	if (!creds.token) return { ok: false, error: 'Postmark is not configured (no POSTMARK_TOKEN).' };
-	const { map, errors, read } = await suppressionsByEmail(creds.token, suppressionStreams(creds.stream, creds.txStream));
-	if (!read) return { ok: false, error: `Postmark unreachable — ${errors.join('; ')}` };
+export async function syncSuppressions(db: D1Database, creds: SuppressionSource): Promise<SuppressionSyncOutcome> {
+	const mail = asMailProvider(creds);
+	if (!mail?.suppressions) return { ok: false, error: 'Postmark is not configured (no POSTMARK_TOKEN).' };
+	const { map, errors, read } = await mail.suppressions.byEmail();
+	if (!read) return { ok: false, error: `${mail.label} unreachable — ${errors.join('; ')}` };
 
 	let matched = 0;
 	const toUnsub = new Map<string, number[]>(); // "<reason>\n<stream>" → still-subscribed contact ids
@@ -80,7 +82,7 @@ export async function syncSuppressions(db: D1Database, creds: PostmarkCreds): Pr
 	const byReason: Record<string, number> = {};
 	for (const [key, ids] of toUnsub) {
 		const [reason, stream] = key.split('\n');
-		const { changed, changedIds } = await unsubscribeIds(db, ids, `postmark:${reason}`, `Postmark sync (${stream})`);
+		const { changed, changedIds } = await unsubscribeIds(db, ids, `${mail.id}:${reason}`, `${mail.label} sync (${stream})`);
 		unsubscribed += changed;
 		// #444: "Subscription changes" trigger + tier refresh for the newly suppressed.
 		await subscriptionChanged(db, changedIds, 'unsubscribed', { source: 'postmark' });
@@ -112,7 +114,7 @@ async function putState(db: D1Database, key: string, value: string): Promise<voi
 /** Run a sync and, when it read Postmark, store it as the last sync. */
 export async function runSuppressionSync(
 	db: D1Database,
-	creds: PostmarkCreds,
+	creds: SuppressionSource,
 	trigger: SuppressionSyncTrigger,
 	extra: { campaignIds?: number[] } = {}
 ): Promise<SuppressionSyncOutcome> {
@@ -154,11 +156,11 @@ function sqlTime(ms: number): string {
  */
 export async function runSuppressionSyncAfterSend(
 	db: D1Database,
-	creds: PostmarkCreds,
+	creds: SuppressionSource,
 	now = Date.now()
 ): Promise<{ skipped: string } | (SuppressionSyncOutcome & { campaignIds: number[] })> {
 	try {
-		if (!creds.token) return { skipped: 'not configured' };
+		if (!asMailProvider(creds)?.suppressions) return { skipped: 'not configured' };
 		const claimed = await db
 			.prepare(
 				`UPDATE campaigns SET post_send_sync_at = ?
@@ -187,15 +189,16 @@ export async function runSuppressionSyncAfterSend(
  */
 export async function runSuppressionSyncDaily(
 	db: D1Database,
-	creds: PostmarkCreds,
+	creds: SuppressionSource,
 	now = Date.now()
 ): Promise<{ skipped: string } | SuppressionSyncOutcome> {
 	try {
-		if (!creds.token) return { skipped: 'not configured' };
+		if (!asMailProvider(creds)?.suppressions) return { skipped: 'not configured' };
 		const row = await db.prepare('SELECT value FROM app_state WHERE key = ?').bind(CRON_KEY).first<{ value: string | null }>();
 		const last = row?.value ? Date.parse(row.value) : NaN;
 		if (Number.isFinite(last) && now - last < DAY_MS) return { skipped: 'ran in the last 24h' };
-		await putState(db, CRON_KEY, new Date(now).toISOString());
+		// #729: compare-and-set on the stamp we just read, so two clocks ticking at once can't both run it.
+		if (!(await casAppState(db, CRON_KEY, row?.value ?? null, new Date(now).toISOString()))) return { skipped: 'ran in the last 24h' };
 		const out = await runSuppressionSync(db, creds, 'cron');
 		if (!out.ok) console.error('suppression sync failed:', out.error.slice(0, 200));
 		return out;

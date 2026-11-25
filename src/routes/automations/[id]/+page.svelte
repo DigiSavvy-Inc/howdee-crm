@@ -6,7 +6,7 @@
 	import { noImplicitSubmit } from '$lib/no-implicit-submit';
 	import { beforeNavigate, goto, invalidateAll, replaceState } from '$app/navigation';
 	import { page } from '$app/state';
-	import { tick, untrack } from 'svelte';
+	import { onMount, tick, untrack } from 'svelte';
 	import PreSendChecks from '$lib/components/PreSendChecks.svelte';
 	// #398: A/B tests, pre-activation checks on every email, simulate a contact.
 	import StepAbTest from '$lib/components/automations/StepAbTest.svelte';
@@ -285,6 +285,16 @@
 
 	const a = $derived(data.automation);
 	const isActive = $derived(a.status === 'active');
+	// #714: a suggestion's "Move to an automation" step lands here with `?enroll_list=<group>`:
+	// open Enroll contacts with that group picked and count it. The person confirms; nothing
+	// is enrolled before they press Enroll.
+	onMount(() => {
+		const want = page.url.searchParams.get('enroll_list');
+		if (!want || !data.lists.some((l: { id: number }) => String(l.id) === want)) return;
+		enrollListId = want;
+		enrollOpen = true;
+		if (isActive) previewEnroll('list');
+	});
 	/** #412: what a confirmed manual enroll adds — plus the entry-condition skips when ignored. */
 	function enrollCountOf(p: EnrollPreviewState): number {
 		return p.eligible + (ignoreEntry ? p.entry_blocked : 0) + forcedCountOf(p);

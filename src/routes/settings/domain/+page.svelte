@@ -7,6 +7,7 @@
 	const SOURCE_LABEL: Record<string, string> = {
 		setting: 'this page',
 		env: 'the PUBLIC_BASE_URL var in wrangler.jsonc',
+		seen: 'the address recorded at /setup (or chosen in the setup wizard)',
 		request: 'the address you opened the app on (nothing else is set)',
 		none: 'nothing set'
 	};

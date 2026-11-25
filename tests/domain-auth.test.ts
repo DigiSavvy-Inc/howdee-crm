@@ -12,6 +12,7 @@ import {
 	fetchPostmarkDomains,
 	mapPostmarkDomain,
 	recordResult,
+	runDomainAuthDaily,
 	spfAll,
 	spfDirectLookups,
 	txtValue,
@@ -248,5 +249,23 @@ describe('pass → fail alerting', () => {
 		applyTransitions(a, b, null); // stamps lastKnown on b
 		const { raised } = applyTransitions(b, result('2026-10-16T00:00:00Z', { dmarc: 'fail' }), null);
 		expect(raised).toHaveLength(1);
+	});
+});
+
+// #729: the app's own clock and the heartbeat Worker may tick in the same minute.
+describe('daily run claim', () => {
+	afterEach(() => vi.unstubAllGlobals());
+
+	it('two concurrent daily runs check once', async () => {
+		await db.prepare(`DELETE FROM app_state WHERE key = 'domain_auth_cron_at'`).run();
+		vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 401 })));
+		const now = Date.parse('2026-10-18T12:00:00Z');
+		const results = await Promise.all([runDomainAuthDaily(db, {} as any, now), runDomainAuthDaily(db, {} as any, now)]);
+		expect(results.filter((r) => 'skipped' in r)).toEqual([{ skipped: 'ran in the last 24h' }]);
+		expect(results.filter((r) => !('skipped' in r))).toHaveLength(1);
+		const stamp = await db.prepare(`SELECT value FROM app_state WHERE key = 'domain_auth_cron_at'`).first<{ value: string }>();
+		expect(stamp?.value).toBe(new Date(now).toISOString());
+		// A day later the next run claims it again.
+		expect('skipped' in (await runDomainAuthDaily(db, {} as any, now + 25 * 3600_000))).toBe(false);
 	});
 });

@@ -17,6 +17,7 @@
 import type { BriefSource } from '$lib/account-brief';
 import { costMicros, effortFor, type Usage } from '$lib/ai-models';
 import { sqliteUtc } from '../businessdays';
+import { claimLease, releaseLease } from '../app-state-claim';
 import { collectBriefSources, type BriefInput } from '../account-brief-sources';
 import { availability, featureModel, getAssistantConfig, modelKeyProblem, spendCheck, spentMicros, utcMonthStart, type AssistantConfig } from './config';
 import { providerFor } from './providers';
@@ -30,6 +31,9 @@ export const BRIEF_MAX_TOKENS = 1500;
 export const ONE_LINER_MAX = 160;
 export const BRIEF_ERROR_BACKOFF_MS = 60 * 60 * 1000;
 const BACKOFF_KEY = 'account_briefs_backoff_until';
+/** #729: lease so two clocks ticking at once never brief the same companies twice. */
+const LOCK_KEY = 'account_briefs_lock';
+const LOCK_LEASE_MS = 10 * 60 * 1000;
 /** Older, superseded briefs are pruned after this many days (the newest per company + audience stays). */
 export const BRIEF_KEEP_DAYS = 60;
 
@@ -403,7 +407,23 @@ export async function runAccountBriefs(
 	if (!o.provider && (!briefModel || (await modelKeyProblem(db, platformEnv, briefModel)))) return { ...summary, skipped: 'no key' };
 	const backoff = await db.prepare('SELECT value FROM app_state WHERE key = ?').bind(BACKOFF_KEY).first<{ value: string | null }>();
 	if (backoff?.value && Number(backoff.value) > now.getTime()) return { ...summary, skipped: 'backing off' };
+	if (!(await claimLease(db, LOCK_KEY, now, LOCK_LEASE_MS))) return { ...summary, skipped: 'locked' };
+	try {
+		return await briefPass(db, platformEnv, o, now, summary, cfg);
+	} finally {
+		await releaseLease(db, LOCK_KEY);
+	}
+}
 
+/** The body of `runAccountBriefs`, run while holding its lease. */
+async function briefPass(
+	db: D1Database,
+	platformEnv: unknown,
+	o: { provider?: AiProvider; fetch?: typeof fetch },
+	now: Date,
+	summary: BriefRunSummary,
+	cfg: AssistantConfig
+): Promise<BriefRunSummary> {
 	await db
 		.prepare(
 			`DELETE FROM company_briefs WHERE generated_at < ? AND id NOT IN (

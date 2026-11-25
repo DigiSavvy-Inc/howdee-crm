@@ -12,6 +12,7 @@ import { triggerEmailNames } from '$lib/server/engagement-trigger-read';
 import { SEARCH_TOTAL_CAP, type SearchResponse } from '$lib/site-search';
 import { visibleCampaignSql } from '$lib/server/system-mail';
 import { activeContactSql } from '$lib/server/active-audience';
+import { containsSql, equalsCiSql, startsWithSql } from '$lib/server/sql-match';
 
 export const SEARCH_MAX_LIMIT = 10;
 
@@ -22,12 +23,12 @@ export function escapeLike(q: string): string {
 
 /** The rank of the best field: 0 = exact (case-insensitive), 1 = prefix, 2 = substring. */
 function rankSql(fields: string[]): string {
-	const exact = fields.map((f) => `${f} LIKE ?1 ESCAPE '\\'`).join(' OR ');
-	const prefix = fields.map((f) => `${f} LIKE ?2 ESCAPE '\\'`).join(' OR ');
+	const exact = fields.map((f) => equalsCiSql(f, '?1')).join(' OR ');
+	const prefix = fields.map((f) => startsWithSql(f, '?1')).join(' OR ');
 	return `CASE WHEN ${exact} THEN 0 WHEN ${prefix} THEN 1 ELSE 2 END`;
 }
 function matchSql(fields: string[]): string {
-	return `(${fields.map((f) => `${f} LIKE ?3 ESCAPE '\\'`).join(' OR ')})`;
+	return `(${fields.map((f) => containsSql(f, '?1')).join(' OR ')})`;
 }
 /** COUNT that stops at cap + 1 rows, so a broad query never counts the whole table. */
 function cappedCount(from: string, where: string): string {
@@ -49,7 +50,7 @@ const COMPANY_FIELDS = ['co.name', 'co.domain'];
 const CAMPAIGN_FIELDS = ['cp.subject'];
 const AUTOMATION_FIELDS = ['a.name'];
 // Labels ("automation tags", #74/#432) match too.
-const AUTOMATION_MATCH = `(a.name LIKE ?3 ESCAPE '\\' OR EXISTS (SELECT 1 FROM automation_labels al WHERE al.automation_id = a.id AND al.label LIKE ?3 ESCAPE '\\'))`;
+const AUTOMATION_MATCH = `(${containsSql('a.name', '?1')} OR EXISTS (SELECT 1 FROM automation_labels al WHERE al.automation_id = a.id AND ${containsSql('al.label', '?1')}))`;
 
 // #705: the active audience only — unsubscribed / archived contacts are found on /contacts.
 const CONTACT_WHERE = `${activeContactSql('c')} AND ${matchSql(CONTACT_FIELDS)}`;
@@ -74,8 +75,8 @@ function contactName(r: ContactRow): string {
 /** Runs the four groups. `q` is trimmed by the caller and non-empty. */
 export async function siteSearch(db: D1Database, q: string, limit = 5): Promise<SearchResponse> {
 	const n = Math.max(1, Math.min(SEARCH_MAX_LIMIT, Math.floor(limit) || 5));
-	const esc = escapeLike(q.slice(0, 100));
-	const binds = [esc, `${esc}%`, `%${esc}%`];
+	// #485: the raw text, matched with instr (no LIKE pattern, so no 50-byte D1 cap).
+	const binds = [q.slice(0, 100)];
 
 	const stmts = [
 		db

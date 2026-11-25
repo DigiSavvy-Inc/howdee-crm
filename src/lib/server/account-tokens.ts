@@ -18,6 +18,7 @@ import { sha256Hex } from './api-keys';
 import { b64urlEncode } from './token';
 import { credentialStamp, hashPassword, passwordPolicyError } from './password';
 import { sendCampaignEmail } from './send';
+import { mailSetup } from './mail';
 import { ACCOUNT_MAIL_KIND } from './system-mail';
 import { emailDocument } from './email';
 import { getSettings } from './settings';
@@ -319,7 +320,8 @@ export async function sendAccountEmail(
 	input: { kind: TokenKind; to: string; token: string; inviter?: string | null; role?: UserRole | null },
 	opts: SendOpts = {}
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-	if (!env.POSTMARK_TOKEN) return { ok: false, error: 'Email isn’t set up (POSTMARK_TOKEN).' };
+	const { provider: mail, creds } = await mailSetup(db, env);
+	if (!mail) return { ok: false, error: creds.postmark.tokenError ?? 'Email isn’t set up (POSTMARK_TOKEN).' };
 	const from = (await getSettings(db)).default_from?.trim() || env.POSTMARK_FROM || '';
 	if (!from) return { ok: false, error: 'No From address (Settings → Default From or POSTMARK_FROM).' };
 	const baseUrl = opts.baseUrl ?? (await publicBaseUrl(db, env));
@@ -341,7 +343,7 @@ export async function sendAccountEmail(
 	let result;
 	try {
 		result = await (opts.deliver ?? sendCampaignEmail)(db, {
-			token: env.POSTMARK_TOKEN,
+			provider: mail,
 			secret: env.SESSION_SECRET || 'unused',
 			baseUrl,
 			campaignId,
@@ -350,7 +352,8 @@ export async function sendAccountEmail(
 			htmlTemplate: msg.html,
 			textTemplate: msg.text,
 			from,
-			stream: env.POSTMARK_STREAM_TX || 'outbound',
+			stream: mail.streams.transactional,
+			streamKind: 'transactional',
 			trackOpens: false,
 			trackLinks: 'None',
 			unsubscribe: false

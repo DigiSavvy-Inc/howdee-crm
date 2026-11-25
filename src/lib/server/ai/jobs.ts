@@ -614,16 +614,26 @@ export async function sendTestPayload(db: D1Database, platformEnv: unknown, job:
 
 export type JobsTickSummary = { due: number; ran: number; ok: number; error: number; skipped: number };
 
-/** Heartbeat: claim and run ≤ JOBS_PER_TICK due jobs, oldest due first. Each job is isolated. */
+/** #731: SQL true for a job whose delivery includes email (same test as `parseEmailSelection`
+ *  returning non-null: `email_admins` is a JSON array). CASE keeps json_type off invalid JSON. */
+const DELIVERS_EMAIL_SQL = `CASE WHEN json_valid(email_admins) THEN json_type(email_admins) = 'array' ELSE 0 END`;
+
+/** Heartbeat: claim and run ≤ JOBS_PER_TICK due jobs, oldest due first. Each job is isolated.
+ *  #731: `emailOff` (the tick found no sending credentials) leaves every due job that delivers
+ *  by email untouched: not claimed, no model call, no run row, still due for a later tick. Only
+ *  webhook-only jobs run then. The flag comes from the caller, so nothing here imports send code. */
 export async function runDueJobs(
 	db: D1Database,
 	platformEnv: unknown,
-	o: Omit<RunOptions, 'trigger'> & { limit?: number } = {}
+	o: Omit<RunOptions, 'trigger'> & { limit?: number; emailOff?: boolean } = {}
 ): Promise<JobsTickSummary> {
 	const now = o.now ?? new Date();
 	const summary: JobsTickSummary = { due: 0, ran: 0, ok: 0, error: 0, skipped: 0 };
 	const due = await db
-		.prepare('SELECT * FROM ai_jobs WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ? ORDER BY next_run_at, id LIMIT ?')
+		.prepare(
+			`SELECT * FROM ai_jobs WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?${o.emailOff ? ` AND NOT (${DELIVERS_EMAIL_SQL})` : ''}
+			 ORDER BY next_run_at, id LIMIT ?`
+		)
 		.bind(sqliteUtc(now), o.limit ?? JOBS_PER_TICK)
 		.all<JobRow>();
 	summary.due = due.results.length;

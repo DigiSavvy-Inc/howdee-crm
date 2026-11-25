@@ -1,3 +1,4 @@
+import type { MailProvider } from './mail';
 import { sendCampaignEmail, type SendableRecipient, type SendResult } from './send';
 import { UNSUB_PLACEHOLDER } from './email';
 import { campaignTopicId, withoutOptedOut } from './topics';
@@ -80,7 +81,7 @@ export async function performResend(
 	campaign: ResendableCampaign,
 	subject: string,
 	recipients: SendableRecipient[],
-	sendOpts: { token: string; secret: string; baseUrl: string; stream: string; replyToInbound?: string }
+	sendOpts: { token: string; provider?: MailProvider | null; secret: string; baseUrl: string; stream: string; replyToInbound?: string }
 ): Promise<SendResult> {
 	const htmlTemplate = campaign.body_html;
 	const textTemplate =
@@ -94,6 +95,7 @@ export async function performResend(
 
 	const result = await sendCampaignEmail(db, {
 		token: sendOpts.token,
+		provider: sendOpts.provider,
 		secret: sendOpts.secret,
 		baseUrl: sendOpts.baseUrl,
 		campaignId: campaign.id,

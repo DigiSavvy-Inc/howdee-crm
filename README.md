@@ -21,10 +21,35 @@ custom domain, and a newsletter archive served from your own site.
 
 ## Install
 
-Follow the [self-hosting guide](docs/self-hosting.md). In short: create a D1 database and an R2
-bucket, copy the two config templates, set the secrets, run `npm run deploy`, deploy the small
-heartbeat Worker, then open the app and create the first admin at `/setup`. The app's own
-**Settings → Setup** page checks the install for you afterwards.
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/DigiSavvy-Inc/howdee-crm)
+
+**With the button:** click **Deploy to Cloudflare**, sign in, type a setup phrase in the one field
+(`SETUP_TOKEN`), and wait for the build. Then open the app and create the first admin at `/setup`
+with that phrase. The build is designed to create the database and bucket, apply the migrations and
+generate every other secret. The button is new and still being tested on a fresh account; the
+terminal path below (`npm run deploy`) is the tested one. Cloudflare can take up to 15 minutes to start the app's once-a-minute clock on a
+new install; Settings → Setup shows when it has.
+
+**From a terminal:**
+
+```sh
+git clone <repository url> howdee-crm && cd howdee-crm
+npm install
+npx wrangler login
+npm run deploy
+```
+
+The deploy creates the database and bucket, applies the migrations, uploads the app, generates its
+secrets and prints a one-time setup link. Open it and create the first admin. The app's
+**Settings → Setup** page walks you through connecting Postmark and checks the install afterwards.
+
+Every install runs its own once-a-minute clock (`triggers.crons` in `wrangler.jsonc`), so there is no
+second Worker to deploy. The separate heartbeat Worker is optional.
+
+To choose every name and secret yourself, use the manual steps in
+[Install by hand](docs/self-hosting.md#9-install-by-hand). The
+[self-hosting guide](docs/self-hosting.md) covers all three, plus the optional parts and how to
+remove an install.
 
 ## Features
 
@@ -75,7 +100,7 @@ heartbeat Worker, then open the app and create the first admin at `/setup`. The 
 ```sh
 npm install
 cp wrangler.example.jsonc wrangler.jsonc        # local D1 only needs the database_name
-cp .dev.vars.example .dev.vars                  # fill in SESSION_SECRET and SETUP_TOKEN at least
+cp .dev.vars.reference .dev.vars                # fill in SESSION_SECRET and SETUP_TOKEN at least
 npx wrangler d1 migrations apply <database_name> --local
 npm run dev
 ```
@@ -89,6 +114,10 @@ with:
 curl -X POST -H "Authorization: Bearer <CRON_KEY>" http://localhost:5173/api/automations/tick
 ```
 
+After `npm run build`, `npx wrangler dev --test-scheduled` runs the built Worker and
+`curl http://localhost:8787/__scheduled` fires its built-in clock once (no `CRON_KEY` needed; it
+needs `PUBLIC_BASE_URL` or a Settings → Domain value, or it skips the tick).
+
 `npm run check` type-checks the project and `npm test` runs the test suite inside a local
 Workers runtime with a real D1.
 
@@ -101,7 +130,9 @@ npm run deploy
 ```
 
 `npm run deploy` applies any new migrations to the production database first, then builds and
-uploads the Worker, so the schema is never behind the code. Redeploy the heartbeat Worker only when
+uploads the Worker, so the schema is never behind the code. An install made with the button updates by
+bringing the new release into its own repository copy; Workers Builds then runs the same deploy
+([Upgrading](docs/self-hosting.md#upgrading); those steps are not tested yet). Redeploy the heartbeat Worker only when
 `heartbeat/` changed. Never run a migration file's SQL by hand; `wrangler d1 migrations apply` is
 the only supported path.
 

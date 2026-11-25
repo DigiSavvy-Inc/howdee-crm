@@ -74,6 +74,19 @@
 	<!-- #305: post-send deliverability alerts (after #304's domain-auth banners). -->
 	<DeliverabilityAlerts alerts={data.alerts} thresholds={data.digest.thresholds} />
 
+	{#if data.preflightHolds?.length}
+		<!-- #479: scheduled sends held because their pre-send checks failed at the send time. -->
+		<div class="notice err" role="alert">
+			<strong>{data.preflightHolds.length === 1 ? 'A scheduled send is held' : `${data.preflightHolds.length} scheduled sends are held`}</strong>
+			— its pre-send checks failed when it was due. Nothing was sent.
+			<ul class="held-list">
+				{#each data.preflightHolds as h (h.id)}
+					<li><a href="/campaign/{h.id}">{h.subject}</a>: Held: {h.summary}</li>
+				{/each}
+			</ul>
+		</div>
+	{/if}
+
 	{#if data.setupAttention > 0}
 		<!-- #609: admins only (the load returns 0 for members). -->
 		<p class="notice warn" role="status">
@@ -90,7 +103,7 @@
 			{:else}
 				No tick has ever been recorded, but {data.health.active_automations} automation{data.health.active_automations === 1 ? ' is' : 's are'} active.
 			{/if}
-			Scheduled sends, automation emails and background jobs are not running. Check the heartbeat Worker (cron trigger + CRON_KEY).
+			Scheduled sends, automation emails and background jobs are not running. Check the clock: the app's own cron trigger (<code>triggers.crons</code> in wrangler.jsonc, and Settings → Setup), or the heartbeat Worker (cron trigger + CRON_KEY) if you run one.
 		</div>
 	{:else if data.health.overdue > 0}
 		<div class="notice warn">
@@ -473,6 +486,10 @@
 </div>
 
 <style>
+	.held-list {
+		margin: var(--space-xs) 0 0;
+		padding-left: var(--space-m);
+	}
 	.stuck {
 		margin: var(--space-xs) 0 0;
 		padding-left: 1.2em;

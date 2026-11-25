@@ -5,6 +5,7 @@ import { buildCondCtx, hasConditionals } from '$lib/conditionals';
 import { RECIPIENT_COLS } from './segments';
 import { hasCompanyTags } from '$lib/merge-tags';
 import { companyMergeFields } from './company-metrics';
+import { containsSql } from './sql-match';
 
 export type RenderedEmail = {
 	subject: string;
@@ -182,8 +183,9 @@ export type RecipientMatch = { id: number; email: string; name: string | null; c
 
 /**
  * #155: "Viewing as" search — this campaign's recipients whose email or contact name
- * contains `q` (LIKE wildcards escaped). One row per email (its latest recipient row, so a
- * resend doesn't list the same person twice). Callers enforce the 2-char minimum.
+ * contains `q` (`%` / `_` literal; instr, not LIKE — #485). One row per email (its latest
+ * recipient row, so a resend doesn't list the same person twice). Callers enforce the 2-char
+ * minimum.
  */
 export async function searchCampaignRecipients(
 	db: D1Database,
@@ -191,9 +193,9 @@ export async function searchCampaignRecipients(
 	q: string,
 	limit = 10
 ): Promise<RecipientMatch[]> {
-	const like = `%${q.trim().replace(/[\\%_]/g, '\\$&')}%`;
+	const text = q.trim();
 	const fields = ['r.email', 'c.name', "TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,''))"];
-	const where = fields.map((f) => `${f} LIKE ? ESCAPE '\\'`).join(' OR ');
+	const where = fields.map((f) => containsSql(f)).join(' OR ');
 	const rows = await db
 		.prepare(
 			`SELECT MAX(r.id) AS id, r.email AS email, r.contact_id AS contact_id,
@@ -206,7 +208,7 @@ export async function searchCampaignRecipients(
 			 ORDER BY r.email COLLATE NOCASE
 			 LIMIT ?`
 		)
-		.bind(campaignId, ...fields.map(() => like), limit)
+		.bind(campaignId, ...fields.map(() => text), limit)
 		.all<RecipientMatch>();
 	return rows.results;
 }

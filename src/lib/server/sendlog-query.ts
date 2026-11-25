@@ -18,6 +18,7 @@
  */
 
 import { visibleCampaignSql } from './system-mail';
+import { containsSql } from './sql-match';
 
 export type SendLogType = 'any' | 'campaign' | 'direct' | 'automation' | 'resent';
 export type SendLogStatus = 'any' | 'sent' | 'scheduled' | 'sending' | 'failed' | 'draft';
@@ -75,11 +76,6 @@ export function sendLogFilterParams(f: SendLogFilter): Record<string, string> {
 	return p;
 }
 
-/** `%term%` with LIKE wildcards in the user's text escaped (paired with ESCAPE '\'). */
-function like(term: string): string {
-	return `%${term.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
-}
-
 // CASE expression yielding 'automation' | 'direct' | 'campaign' for `SELECT … AS kind`.
 // See the module doc comment above for the derivation rule.
 export const SENDLOG_TYPE_SQL = `CASE
@@ -112,8 +108,8 @@ export function sendLogWhere(f: SendLogFilter): { where: string; params: (string
 		params.push('sent');
 	}
 	if (f.q) {
-		clauses.push(`c.subject LIKE ? ESCAPE '\\'`);
-		params.push(like(f.q));
+		clauses.push(containsSql('c.subject')); // #485: no LIKE pattern cap
+		params.push(f.q);
 	}
 	if (f.from) {
 		clauses.push('date(COALESCE(c.sent_at, c.scheduled_at, c.created_at)) >= ?');
@@ -187,6 +183,10 @@ export type SendLogRow = {
 	resend_status: string | null;
 	resent_at: string | null;
 	resend_recipients: number | null;
+	/** #479: a held scheduled send (#305 deliverability or #479 preflight) and, for preflight, its report JSON. */
+	held_at: string | null;
+	held_reason: string | null;
+	preflight_report: string | null;
 	kind: 'automation' | 'direct' | 'campaign';
 	accepted: number;
 	opens: number;
@@ -218,6 +218,7 @@ export async function sendLogRows(
 			   SELECT c.id, c.subject, c.status, c.recipient_count, c.created_at, c.sent_at, c.scheduled_at,
 			          c.list_id, l.name AS list_name, c.automation_id, a.name AS automation_name,
 			          c.resend_status, c.resent_at, c.resend_recipients,
+			          c.held_at, c.held_reason, CASE WHEN c.held_reason = 'preflight' THEN c.preflight_report END AS preflight_report,
 			          ${SENDLOG_TYPE_SQL} AS kind,
 			          (SELECT COUNT(*) FROM recipients r WHERE r.campaign_id = c.id AND r.status = 'accepted') AS accepted,
 			          (SELECT COUNT(DISTINCT recipient_id) FROM events e WHERE e.campaign_id = c.id AND e.type = 'open') AS opens,

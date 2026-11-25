@@ -3,13 +3,22 @@
 	// Keep it in step with wrangler.jsonc: every binding and var there is here too, apart from
 	// the private-only keys listed in tests/wrangler-example-607.test.ts.
 	"$schema": "./node_modules/wrangler/config-schema.json",
-	// Your Worker's name. Keep WORKER_NAME (below) and the heartbeat's service binding equal to it.
+	// Your Worker's name. Keep WORKER_NAME (below) equal to it, and the heartbeat's service binding
+	// too if you deploy the optional heartbeat Worker.
 	"name": "your-crm-worker",
 	"compatibility_date": "2026-06-04",
 	"compatibility_flags": [
 		"nodejs_als"
 	],
+	// The SvelteKit build output. `npm run build` wraps it (scripts/wrap-worker.mjs) so it also has
+	// a `scheduled` handler: the Cron Trigger below runs the automation tick inside this Worker, so
+	// no heartbeat Worker or CRON_KEY is needed (#729). Drop `triggers` to use heartbeat/ instead.
 	"main": ".svelte-kit/cloudflare/_worker.js",
+	"triggers": {
+		// The app's own clock: one tick every minute (automations, scheduled sends, housekeeping).
+		// The engine is idempotent, so cadence only affects latency.
+		"crons": ["* * * * *"]
+	},
 	"assets": {
 		"binding": "ASSETS",
 		"directory": ".svelte-kit/cloudflare"
@@ -40,17 +49,21 @@
 		}
 	],
 	"vars": {
-		// Non-secret config. Secrets are listed in .dev.vars.example; set them in .dev.vars
+		// Non-secret config. Secrets are listed in .dev.vars.reference; set them in .dev.vars
 		// locally and with `wrangler secret put <NAME>` in production.
 
-		// Required. The default From address; its domain must be verified in Postmark.
-		"POSTMARK_FROM": "you@example.com",
-		// Required. Postmark broadcast message stream used for campaigns and automations.
+		// Optional. The default From address; its domain must be verified in Postmark.
+		// Empty = Settings → General → Default From (the setup wizard asks for it).
+		"POSTMARK_FROM": "",
+		// Optional. Postmark broadcast message stream used for campaigns and automations.
+		// Empty = Settings → Sending, else "broadcast".
 		"POSTMARK_STREAM": "broadcast",
-		// Required. Postmark transactional stream used for 1:1 sends, replies and operator mail.
+		// Optional. Postmark transactional stream used for 1:1 sends, replies and operator mail.
+		// Empty = Settings → Sending, else "outbound".
 		"POSTMARK_STREAM_TX": "outbound",
-		// Required. Public origin of the app, no trailing slash. Settings → Domain overrides it.
-		"PUBLIC_BASE_URL": "https://crm.example.com",
+		// Optional. Public origin of the app, no trailing slash. Settings → Domain overrides it.
+		// Empty = the address the first admin was created on at /setup.
+		"PUBLIC_BASE_URL": "",
 		// Optional. An address on your Postmark inbound domain; when set, sends get a
 		// per-recipient Reply-To there so replies reach /api/inbound. Empty = no reply capture.
 		"POSTMARK_INBOUND_ADDRESS": "",

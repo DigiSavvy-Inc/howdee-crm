@@ -1,6 +1,7 @@
 import { error, fail, redirect, type Actions, type RequestEvent, type ServerLoad } from '@sveltejs/kit';
 import { createSession, SESSION_COOKIE, SESSION_MAX_AGE } from '$lib/server/auth';
 import { getDB } from '$lib/server/db';
+import { recordSeenOrigin } from '$lib/server/public-url';
 import {
 	checkSetupToken,
 	createFirstAdmin,
@@ -12,6 +13,11 @@ import {
 
 // #606: first-run setup — creates the first admin while the users table is empty.
 // Once any user exists this route is a 404 (load and action alike).
+//
+// #731: the setup link the deploy prints carries the token in the URL fragment (`/setup#token=…`).
+// The page's script reads it, fills the token field and strips it from the address bar; a
+// fragment is never sent to the server, so the token reaches us only in the form body, like a
+// typed one, and goes through the same constant-time check and lockout.
 
 function clientIp(event: RequestEvent): string {
 	const cf = event.request.headers.get('cf-connecting-ip');
@@ -72,7 +78,17 @@ export const actions: Actions = {
 			secure: url.protocol === 'https:',
 			maxAge: SESSION_MAX_AGE
 		});
-		// #609: straight to the setup checklist, which says what is still missing.
+		// #731: the address this request arrived on is the app's address until Settings → Domain or
+		// PUBLIC_BASE_URL says otherwise, so the built-in clock builds real links. Only the request's
+		// own URL is used (never a header or a form field); the internal tick origin and loopback
+		// hosts are never stored. Best-effort: the admin exists either way.
+		try {
+			await recordSeenOrigin(db, url);
+		} catch (e) {
+			console.error('setup: could not record the public address:', (e instanceof Error ? e.message : String(e)).slice(0, 200));
+		}
+		// #609: straight to the setup checklist, which says what is still missing. #731: `first=1`
+		// opens it as the first-run wizard.
 		throw redirect(303, '/settings/setup?first=1');
 	}
 };

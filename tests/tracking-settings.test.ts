@@ -57,7 +57,7 @@ function actionEv(fields: Record<string, string>, user: unknown = admin, fetchIm
 }
 
 describe('tracking snippet source', () => {
-	const js = renderTrackingSnippet({ siteKey: 'dsv_0123456789abcdef01234567', endpoint: 'https://crm.myapp.example/' });
+	const js = renderTrackingSnippet({ siteKey: 'dsv_0123456789abcdef01234567', endpoint: 'https://crm.myapp.example/' }); // gitleaks:allow
 
 	it('parses as JavaScript and uses no eval', () => {
 		expect(js).not.toMatch(/\beval\s*\(/);
@@ -269,7 +269,7 @@ describe('ingest form hook', () => {
 
 	it('returns a dsv_id for an enabled site_key, and nothing without one', async () => {
 		const id = await site();
-		const res = await ingest({ email: 'lead@example.com', site_key: 'dsv_0123456789abcdef01234567' });
+		const res = await ingest({ email: 'lead@example.com', site_key: 'dsv_0123456789abcdef01234567' }); // gitleaks:allow
 		const j: any = await res.json();
 		expect(j.ok).toBe(true);
 		const v = await verifyVisitorId(SECRET, j.dsv_id);
@@ -281,7 +281,7 @@ describe('ingest form hook', () => {
 		expect(plain.dsv_id).toBeUndefined();
 
 		await db.prepare("UPDATE contacts SET tracking_optout = 1 WHERE email = 'lead@example.com'").run();
-		const opted: any = await (await ingest({ email: 'lead@example.com', site_key: 'dsv_0123456789abcdef01234567' })).json();
+		const opted: any = await (await ingest({ email: 'lead@example.com', site_key: 'dsv_0123456789abcdef01234567' })).json(); // gitleaks:allow
 		expect(opted.dsv_id).toBeUndefined();
 	});
 });

@@ -3,6 +3,7 @@
 	import logomark from '$lib/assets/logomark.svg';
 	import { APP_NAME_MAX, SHORT_NAME_MAX, DEFAULT_APP_NAME, DEFAULT_SHORT_NAME } from '$lib/branding';
 	import { convertFileInput } from '$lib/image-convert';
+	import { CHECK_CATALOG, ENFORCEMENTS, RETRY_CHOICES } from '$lib/presend-policy';
 	let { data, form } = $props();
 	let logoConvertError = $state('');
 </script>
@@ -220,6 +221,82 @@
 
 	<button type="submit">Save settings</button>
 </form>
+
+<!-- #479: Pre-send checks — what stops a send (also a scheduled one when it fires). -->
+<form method="POST" action="?/savePresend" use:enhance={() => async ({ update }) => update({ reset: false })}>
+	<section class="card presend" id="presend">
+		<h2>Pre-send checks</h2>
+		<p class="muted">
+			Every campaign is checked before it goes out, links included (each link is visited; a 5xx or no answer gets one retry).
+			A scheduled send is checked again when it fires.
+		</p>
+		{#if form?.presendSaved}<p class="notice ok" role="status">Pre-send check settings saved.</p>{/if}
+		{#if form?.presendError}<p class="notice err" role="alert">{form.presendError}</p>{/if}
+		<fieldset>
+			<legend>Enforcement</legend>
+			{#each ENFORCEMENTS as e (e.value)}
+				<label class="check">
+					<input type="radio" name="presend_enforcement" value={e.value} checked={data.presendPolicy.enforcement === e.value} />
+					{e.label}{e.value === 'block' ? ' (default)' : ''}
+					<span class="muted">{e.help}</span>
+				</label>
+			{/each}
+		</fieldset>
+		<fieldset>
+			<legend>“Send anyway”</legend>
+			<label class="check">
+				<input type="radio" name="presend_override" value="admins" checked={data.presendPolicy.override === 'admins'} />
+				Admins can override <span class="muted">(default; members never can)</span>
+			</label>
+			<label class="check">
+				<input type="radio" name="presend_override" value="none" checked={data.presendPolicy.override === 'none'} />
+				No overrides <span class="muted">(a blocking check always has to be fixed)</span>
+			</label>
+		</fieldset>
+		<label>
+			Scheduled sends that fail their checks: keep trying for
+			<select name="presend_retry_minutes">
+				{#each RETRY_CHOICES as m (m)}
+					<option value={m} selected={data.presendPolicy.retryMinutes === m}>{m === 0 ? '0 minutes (hold at once)' : `${m} minutes`}{m === 15 ? ' (default)' : ''}</option>
+				{/each}
+			</select>
+			<span class="muted">then hold it. It's re-checked every minute while it waits and sends late if it passes. A held send is never cancelled and never sent with the problem.</span>
+		</label>
+		<label class="check">
+			<input type="checkbox" name="presend_notify_email" value="1" checked={data.presendPolicy.notifyEmail} />
+			Also email the admins when a send is held
+			<span class="muted">(to each admin's own address. The activity feed and dashboard always show it, and the deliverability alert webhook gets it when one is set.)</span>
+		</label>
+		<details>
+			<summary>Per-check levels</summary>
+			<p class="muted">Turn a noisy check off, lower it to a warning, or (under Strict) raise it to Block. Locked checks always keep their level.</p>
+			<table class="presend-levels">
+				<thead><tr><th scope="col">Check</th><th scope="col">Default</th><th scope="col">Level</th></tr></thead>
+				<tbody>
+					{#each CHECK_CATALOG as e (e.id)}
+						<tr>
+							<td>{e.label} <code class="muted">{e.id}{e.prefix ? '.*' : ''}</code></td>
+							<td>{e.level === 'block' ? 'Block' : 'Warn'}</td>
+							<td>
+								{#if e.locked}
+									<span class="muted">Locked</span>
+								{:else}
+									<select name="level:{e.id}" aria-label="Level for {e.label}">
+										<option value="">Default</option>
+										<option value="block" selected={data.presendPolicy.levels[e.id] === 'block'}>Block</option>
+										<option value="warn" selected={data.presendPolicy.levels[e.id] === 'warn'}>Warn</option>
+										<option value="off" selected={data.presendPolicy.levels[e.id] === 'off'}>Off</option>
+									</select>
+								{/if}
+							</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		</details>
+		<button type="submit">Save pre-send checks</button>
+	</section>
+</form>
 {:else}
 	<!-- #532: members only manage their own navigation layout here. -->
 	<p class="muted">The other settings are managed by an admin.</p>
@@ -328,6 +405,19 @@
 {/if}
 
 <style>
+	.presend fieldset {
+		border: 0;
+		padding: 0;
+		margin: 0 0 var(--space-m);
+	}
+	.presend-levels {
+		width: 100%;
+		font-size: var(--size-s);
+		line-height: var(--line-s);
+	}
+	.presend-levels code {
+		font-size: var(--size-xs);
+	}
 	.head { display: flex; align-items: center; gap: var(--space-s); }
 	h1 { margin: 0 0 var(--space-s); font-size: var(--size-l); line-height: var(--line-l); letter-spacing: var(--letter-spacing-l); }
 	.settings { display: flex; flex-direction: column; gap: var(--space-m); margin: 0; max-width: 720px; }

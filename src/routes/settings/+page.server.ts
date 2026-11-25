@@ -22,6 +22,8 @@ import { resendSubjectModel } from '$lib/server/ai-subject';
 import { isNavLayout } from '$lib/nav-layout';
 import { forwardSenderAddress } from '$lib/server/reply-forward';
 import { validateBrandingText, validateLogoFile, unsafeSvg, saveBrandingText, saveLogo, removeLogo } from '$lib/server/branding';
+import { getPresendPolicy, savePresendPolicy } from '$lib/server/presend-policy';
+import { CHECK_CATALOG, normalizePolicy, type LevelOverride } from '$lib/presend-policy';
 
 /** #246 / #696: the resend-subject model's provider has a key (Claude Haiku unless overridden). */
 async function subjectKeySet(db: D1Database, platformEnv: unknown): Promise<boolean> {
@@ -60,6 +62,8 @@ export const load: PageServerLoad = async (event) => {
 			.bind(ENGAGEMENT_CONFIG_KEY)
 			.first()),
 		me: event.locals.user,
+		// #479: Pre-send checks (enforcement, per-check levels, overrides, held sends).
+		presendPolicy: await getPresendPolicy(db),
 		timezoneOptions: timezoneOptions(settings.timezone),
 		defaultTimezone: DEFAULT_TIMEZONE
 	};
@@ -69,6 +73,26 @@ const ADMINS_ONLY = 'Admins only.';
 const isAdmin = (event: { locals: App.Locals }) => event.locals.user?.role === 'admin';
 
 export const actions: Actions = {
+	// #479: Settings → General → Pre-send checks (admins). Unknown ids / levels are dropped.
+	savePresend: async (event) => {
+		if (!isAdmin(event)) return fail(403, { presendError: ADMINS_ONLY });
+		const data = await event.request.formData();
+		const levels: Record<string, LevelOverride> = {};
+		for (const e of CHECK_CATALOG) {
+			const v = String(data.get(`level:${e.id}`) ?? '');
+			if (v === 'block' || v === 'warn' || v === 'off') levels[e.id] = v;
+		}
+		const policy = normalizePolicy({
+			enforcement: String(data.get('presend_enforcement') ?? ''),
+			levels,
+			override: String(data.get('presend_override') ?? ''),
+			retryMinutes: String(data.get('presend_retry_minutes') ?? ''),
+			notifyEmail: data.get('presend_notify_email') === '1'
+		});
+		await savePresendPolicy(getDB(event), policy);
+		return { presendSaved: true };
+	},
+
 	save: async (event) => {
 		if (!isAdmin(event)) return fail(403, { error: ADMINS_ONLY });
 		const db = getDB(event);

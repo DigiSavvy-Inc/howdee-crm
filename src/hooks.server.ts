@@ -32,6 +32,7 @@ const PUBLIC_PREFIXES = [
 	'/mcp', // MCP server (#348) — Bearer Data API key; the scope decides the tools
 	'/api/track', // site tracking beacons (#151) — site_key + Origin allowlist + signed visitor id
 	'/t.js', // site tracking snippet (#152) — public JS, the site_key is public by design
+	'/t/o', '/t/c', // #701: CRM open pixel + click links — GET only, HMAC-signed tokens, no contact data in responses
 	'/unsubscribe',
 	'/confirm', // #510: double opt-in link — GET only shows the button; the POST confirms; /confirm/preview checks admin itself
 	'/p', // public hosted pages (/p/[slug]) — published-only enforced in the route

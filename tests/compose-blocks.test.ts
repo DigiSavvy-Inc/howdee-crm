@@ -30,7 +30,8 @@ function form(fields: Record<string, string>) {
 }
 function actionEvent(action: string, fields: Record<string, string>) {
 	const url = new URL(`https://app.test/compose?/${action}`);
-	return { platform: { env: platformEnv }, params: {}, url, request: new Request(url, { method: 'POST', body: form(fields) }) } as any;
+	// #479: only an admin may tick "Send anyway".
+	return { platform: { env: platformEnv }, params: {}, url, locals: { user: { id: 1, role: 'admin', github_login: 'ourco-admin' } }, request: new Request(url, { method: 'POST', body: form(fields) }) } as any;
 }
 async function run(fn: (e: any) => unknown, e: any): Promise<{ redirect?: string; result?: any }> {
 	try {

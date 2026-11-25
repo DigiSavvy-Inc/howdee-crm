@@ -14,6 +14,7 @@
 		rateText,
 		type SendLogColumn
 	} from '$lib/sendlog-columns';
+	import { heldSummary, parseReport } from '$lib/presend-policy';
 
 	let { data, form } = $props();
 
@@ -305,6 +306,14 @@
 								{#if col.key === 'status'}
 									<td>
 										<span class="badge {c.status}">{c.status}</span>
+										{#if c.held_at && c.status === 'scheduled'}
+											<!-- #479 / #305: a held scheduled send. -->
+											<div>
+												<a class="badge failed" href="/campaign/{c.id}" title="Open it to re-check, edit or release"
+													>Held: {c.held_reason === 'preflight' ? heldSummary(parseReport(c.preflight_report)) : 'deliverability alert'}</a
+												>
+											</div>
+										{/if}
 										{#if c.status === 'canceled'}<div><a class="small" href="/campaign/{c.id}">Edit & reschedule</a></div>{/if}
 									</td>
 								{:else if col.key === 'sent'}

@@ -1,6 +1,7 @@
 import { error, fail, type Actions } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { getDB } from '$lib/server/db';
+import { getMailProvider } from '$lib/server/mail';
 import { enrollContactsInAutomation, listActiveAutomations, restartEnrollment } from '$lib/server/automations';
 import { enrollSkipReason } from '$lib/server/enroll-reason';
 import { addTagAndEnroll } from '$lib/server/contacts';
@@ -539,7 +540,7 @@ export const actions: Actions = {
 		const exists = await db.prepare('SELECT id FROM contacts WHERE id = ?').bind(id).first<{ id: number }>();
 		if (!exists) return fail(404, { subError: 'Contact not found.' });
 		const env = event.platform?.env;
-		const postmark = { token: env?.POSTMARK_TOKEN, stream: env?.POSTMARK_STREAM, txStream: env?.POSTMARK_STREAM_TX };
+		const postmark = await getMailProvider(db, env);
 		const sel = { ok: true as const, ids: [id], all: false, missing: 0 };
 		const want = String(data.get('subscribed') ?? '');
 		if (want === '0') {

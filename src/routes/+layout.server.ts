@@ -1,6 +1,7 @@
 import type { LayoutServerLoad } from './$types';
 import { brandingFor } from '$lib/server/branding';
 import { brandKitFor } from '$lib/server/brand-kit';
+import { panelSummary } from '$lib/server/suggestions/panel';
 import { assistantVisible, draftReplyVisible, editorAskVisible, getAssistantConfig } from '$lib/server/ai/config';
 
 export const load: LayoutServerLoad = async (event) => {
@@ -19,5 +20,15 @@ export const load: LayoutServerLoad = async (event) => {
 	// #188: app name / short name / logo for the header, favicon, login page and tour.
 	// #595: the brand kit (editor swatches + logos, ColorField) — signed-in pages only.
 	const brandKit = locals.user ? await brandKitFor(event) : null;
-	return { authed: locals.authed, user: locals.user, showAssistant, draftReply, editorAsk, branding: await brandingFor(event), brandKit };
+	// #714: the suggestions pill — the count in this user's panel only (cards load on open).
+	// null = the feature is off or not open to them. Never fails the page.
+	let suggestions: Awaited<ReturnType<typeof panelSummary>> = null;
+	if (locals.user && db) {
+		try {
+			suggestions = await panelSummary(db, locals.user);
+		} catch {
+			suggestions = null;
+		}
+	}
+	return { authed: locals.authed, user: locals.user, showAssistant, draftReply, editorAsk, suggestions, branding: await brandingFor(event), brandKit };
 };

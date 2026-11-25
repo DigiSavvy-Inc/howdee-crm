@@ -83,9 +83,14 @@ export async function reopenAsDraft(db: D1Database, id: number): Promise<ReopenR
 		return { ok: false, reason: 'status', error: 'Only a scheduled or canceled campaign can be reopened.' };
 	}
 	if (cur.sent_at || cur.has_recipients) return { ok: false, reason: 'sent', error: PARTLY_SENT };
+	// #479: Edit on a send held by its pre-send checks clears that hold (the schedule is kept);
+	// scheduling it again runs the checks again. A deliverability hold stays.
 	const res = await db
 		.prepare(
-			`UPDATE campaigns SET status = 'draft', resend_status = NULL, recipient_count = 0
+			`UPDATE campaigns SET status = 'draft', resend_status = NULL, recipient_count = 0,
+			        held_at = CASE WHEN held_reason = 'preflight' THEN NULL ELSE held_at END,
+			        held_reason = CASE WHEN held_reason = 'preflight' THEN NULL ELSE held_reason END,
+			        preflight_retry_until = NULL, preflight_override_by = NULL, preflight_override_user_id = NULL
 			 WHERE id = ? AND status IN ('scheduled', 'canceled') AND sent_at IS NULL
 			   AND NOT EXISTS (SELECT 1 FROM recipients r WHERE r.campaign_id = campaigns.id)`
 		)

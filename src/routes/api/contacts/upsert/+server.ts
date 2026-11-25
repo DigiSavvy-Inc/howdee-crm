@@ -32,9 +32,9 @@ import { snapshot } from '$lib/server/snapshot';
  *    other tagging path); `list` adds enroll only with `enroll: true`.
  *  - `fields` (#84): custom fields merged into `contacts.meta`, key-present per key
  *    (null / "" deletes the key). Values must be scalars.
- *  - `source: "seo-snapshot"` (#84) additionally runs the WS Form #6 magnet transform —
- *    list `magnet-seo-snapshot` + source/role/platform/situation/icp tags. See
- *    `$lib/server/snapshot/` (via the entry module, #608) and docs/seo-snapshot-ingest.md.
+ *  - A `source` the snapshot feature recognises (#84) additionally runs its magnet
+ *    transform (a list + source/role/platform/situation/icp tags), through the entry module
+ *    `$lib/server/snapshot` (#608).
  *
  * Body: { id?, email?, new_email?, name?, first_name?, last_name?, company?, source?,
  *         subscribed?, list?, tags?: string[], remove_tags?: string[], enroll?: boolean,
@@ -177,7 +177,7 @@ export const POST: RequestHandler = async (event) => {
 		snapshots ? snapshot.approvedHook(db, event.platform?.env, { allowReenroll: true }) : undefined
 	);
 
-	// WS Form #6 magnet transform (#84) + snapshot job queue (#95) for `source: "seo-snapshot"`.
+	// The snapshot feature's magnet transform (#84) + job queue (#95), for the sources it recognises.
 	if (snapshots) await snapshot.afterContactUpsert(db, event.platform?.env, contactId, body);
 
 	return json({ ok: true, status: creating ? 'added' : 'updated', id: contactId, email: finalEmail });

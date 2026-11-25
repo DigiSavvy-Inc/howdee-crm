@@ -14,11 +14,13 @@
 // webhook MessageID attribution, and contact history all work for free.
 //
 // Assumptions (v1):
-//   - SINGLE heartbeat. The claim lease defends overlapping ticks for the realistic
-//     case (ticks finish in seconds), but the recipient-row guard is read-before-write,
-//     so genuinely concurrent ticks are not a hard exactly-once boundary. If multiple
-//     concurrent heartbeats are ever introduced, add a UNIQUE(campaign_id, contact_id)
-//     on recipients and claim-by-insert before the Postmark call.
+//   - Concurrent ticks. Since #729 an install may run two clocks (the app's own Cron
+//     Trigger and the heartbeat Worker), so two ticks can start in the same minute. The
+//     claim (1) is what keeps them apart: only one wins each (enrollment, step). The
+//     recipient-row guard (2) is read-before-write, so it is not a hard exactly-once
+//     boundary on its own; it only matters after a lease expires (1h, far past a tick's
+//     run time). If that window ever matters, add a UNIQUE(campaign_id, contact_id,
+//     enrollment_id, enrollment_visit) on recipients and claim-by-insert before the send.
 //   - The pointer is a step ID (#74): `current_step_id` survives add/move/reorder, so
 //     the builder no longer locks structural edits while enrollments are active. "Next"
 //     is still resolved by position order at advance time; deleting a step re-points its
@@ -28,6 +30,7 @@ import { renderBody, storedBlocks } from './compose-body';
 import { getSignature } from './email-signature';
 import type { EmailSignature } from '$lib/signature';
 import { sendCampaignEmail, type SendableRecipient } from './send';
+import type { MailProvider } from './mail';
 import { buildCondCtx, checkCondition, formatTagCondition } from '$lib/conditionals';
 import { decodeCondition } from '$lib/company-metrics';
 import { contactMatchesMetric } from './company-metrics';
@@ -67,7 +70,8 @@ import {
 	windowNextOpen
 } from './automation-flow';
 import { FIELD_DATE_EXIT_REASON, FIELD_DATE_RECHECK_SECONDS, FREQUENCY_CAP_PREFIX, parseExitRules, parseWait, WAIT_DELAY_DEFAULT, WAIT_TIMEOUT_DEFAULT, type FrequencyCap } from '$lib/automation-flow';
-import { getTimezone } from './settings';
+import { getSettings, getTimezone } from './settings';
+import { FINISH_SETUP_FROM, FINISH_SETUP_SENDING, isFinishSetupMessage } from '$lib/finish-setup';
 import { abVariantFor } from '$lib/automation-ab';
 import { applyWeekdayOnly, sqliteUtc } from './businessdays';
 import { contactOptedOut } from './topics';
@@ -78,11 +82,17 @@ import { SKIPPED_EMAIL_UNSUBSCRIBED, SUBSCRIPTION_KIND } from '$lib/subscription
 export { STEP_COLS, nextStep, weekdayDueUtc, type StepRow };
 
 export type EngineConfig = {
-	token: string; // POSTMARK_TOKEN
+	token: string; // POSTMARK_TOKEN (only used when `provider` is unset)
+	/** #700: the active sending provider (Settings → Sending, else the env). Unset = a Postmark
+	 *  adapter for `token` + `stream`. */
+	provider?: MailProvider | null;
 	secret: string; // SESSION_SECRET (signs unsubscribe links)
 	baseUrl: string; // PUBLIC_BASE_URL
 	stream: string; // POSTMARK_STREAM (broadcast)
 	inboundAddress?: string; // POSTMARK_INBOUND_ADDRESS — reply capture (#38)
+	/** #731: POSTMARK_FROM, the last stand-in for an email step saved with no From (after
+	 *  Settings → General → Default From). Unset = no env stand-in. */
+	envFrom?: string;
 };
 
 // Postmark recipient-level error codes that won't succeed on retry → fail the
@@ -103,6 +113,33 @@ const MAX_JUMPS_PER_PASS = 25;
 // #395: a contact held at an unfinished step is re-checked this often (saving the step
 // releases them immediately; this is the backstop).
 const HOLD_RECHECK_SECONDS = 600;
+
+// #731: a pass held by a "Finish setup" hold (no sender / no sending provider) for this long since
+// the first such hold fails, like an email with no From did before #731.
+export const SETUP_HOLD_MAX_HOURS = 24;
+export const SETUP_HOLD_FAILED_FROM = 'No sender configured for 24 hours';
+export const SETUP_HOLD_FAILED_SENDING = 'No sending provider configured for 24 hours';
+
+/**
+ * #731: when the current "Finish setup" hold of this pass at this step began, from its timeline:
+ * the earliest `held` event with a Finish-setup detail for this step after the pass's last event
+ * of any other kind (so a hold released by a send, a step change or a loop starts a new clock).
+ * The engine logs that event on the first hold (and whenever the reason changes), and logs one
+ * again whenever none is found (the log write is best-effort), so the clock never goes missing;
+ * at worst it starts one tick late. Null = no such event yet. No migration needed.
+ */
+async function setupHoldSince(db: D1Database, enrollmentId: number, stepId: number): Promise<{ hours: number } | null> {
+	const row = await db
+		.prepare(
+			`SELECT (julianday('now') - julianday(MIN(at))) * 24 AS hours FROM automation_enrollment_events
+			 WHERE enrollment_id = ? AND step_id = ? AND kind = 'held' AND COALESCE(detail, '') IN (?, ?)
+			   AND id > COALESCE((SELECT MAX(id) FROM automation_enrollment_events
+			                      WHERE enrollment_id = ? AND NOT (kind = 'held' AND COALESCE(detail, '') IN (?, ?))), 0)`
+		)
+		.bind(enrollmentId, stepId, FINISH_SETUP_SENDING, FINISH_SETUP_FROM, enrollmentId, FINISH_SETUP_SENDING, FINISH_SETUP_FROM)
+		.first<{ hours: number | null }>();
+	return row?.hours == null ? null : { hours: row.hours };
+}
 
 // #397: how often a contact parked at an event wait is re-checked (it also wakes at its timeout).
 export const WAIT_POLL_SECONDS = 300;
@@ -142,6 +179,7 @@ type TickCtx = {
 	cap: FrequencyCap;
 	tz: string | null; // read on first use (date / window waits)
 	signature?: EmailSignature | null; // #594: read on first email send (undefined = not yet)
+	standInFrom?: string; // #731: Default From, else POSTMARK_FROM — read on first email step with no From
 };
 
 // Lifecycle transition for one enrollment this tick. `sent` (whether Postmark was
@@ -729,29 +767,71 @@ async function processEnrollment(
 		return { outcome: 'completed', sent: false };
 	}
 
-	// 4. Find/create the one campaign row for this step.
-	if (ctx.signature === undefined) ctx.signature = await getSignature(db);
-	const campaignId = await getOrCreateStepCampaign(db, e.automation_id, step, ctx.signature);
-
+	// 4. The one campaign row for this step, if it exists yet (created below, after the holds).
 	// 5. Guard: if an `accepted` recipient row already exists for THIS visit of this step —
 	//    same pass (enrollment_id) and same jump_count (a go-to loop back here bumps it, #395)
 	//    — the send happened on a prior (crashed) tick → just advance, don't re-send. A row
 	//    from before migration 0099 has no enrollment_id: it still counts, but only for the
 	//    contact's first pass through this automation (the pre-#395 behaviour), so a second
-	//    pass ('multiple' re-entry) gets the email.
+	//    pass ('multiple' re-entry) gets the email. #731: checked before the "Finish setup"
+	//    holds, so a send that already went out is advanced, never held. A step with no
+	//    campaign row yet has no recipients, so there is nothing to check.
 	const visit = e.jump_count ?? 0;
-	const alreadySent = await db
-		.prepare(
-			`SELECT id FROM recipients
-			 WHERE campaign_id = ? AND contact_id = ? AND status = 'accepted'
-			   AND ((enrollment_id = ? AND COALESCE(enrollment_visit, 0) = ?)
-			     OR (enrollment_id IS NULL
-			         AND ? = (SELECT MIN(p.id) FROM automation_enrollments p WHERE p.automation_id = ? AND p.contact_id = ?)))
-			 LIMIT 1`
-		)
-		.bind(campaignId, contact.id, e.id, visit, e.id, e.automation_id, contact.id)
+	const existingCampaign = await db
+		.prepare(`SELECT id FROM campaigns WHERE automation_step_id = ? LIMIT 1`)
+		.bind(step.id)
 		.first<{ id: number }>();
-	if (alreadySent) return { outcome: await advance(db, e, step), sent: false };
+	if (existingCampaign) {
+		const alreadySent = await db
+			.prepare(
+				`SELECT id FROM recipients
+				 WHERE campaign_id = ? AND contact_id = ? AND status = 'accepted'
+				   AND ((enrollment_id = ? AND COALESCE(enrollment_visit, 0) = ?)
+				     OR (enrollment_id IS NULL
+				         AND ? = (SELECT MIN(p.id) FROM automation_enrollments p WHERE p.automation_id = ? AND p.contact_id = ?)))
+				 LIMIT 1`
+			)
+			.bind(existingCampaign.id, contact.id, e.id, visit, e.id, e.automation_id, contact.id)
+			.first<{ id: number }>();
+		if (alreadySent) return { outcome: await advance(db, e, step), sent: false };
+	}
+
+	// 5''. #731: "Finish setup" holds. No sending provider configured yet, or no From for this
+	//      step (its own, else Settings → General → Default From, else POSTMARK_FROM): nothing is
+	//      sent and the pass is held at this step like an unfinished step (3a) — re-checked every
+	//      HOLD_RECHECK_SECONDS, `attempts` untouched (never burns the retry budget), the reason in
+	//      last_error. A step with its own From and a configured provider never reaches either hold.
+	//      Bounded: held this way for SETUP_HOLD_MAX_HOURS since the first such hold → failed.
+	let from = step.from_email ?? '';
+	if (!from.trim()) {
+		if (ctx.standInFrom === undefined) {
+			ctx.standInFrom = (await getSettings(db)).default_from?.trim() || cfg.envFrom?.trim() || '';
+		}
+		from = ctx.standInFrom;
+	}
+	const setupHold = !cfg.provider && !cfg.token?.trim() ? FINISH_SETUP_SENDING : !from.trim() ? FINISH_SETUP_FROM : null;
+	if (setupHold) {
+		const since = await setupHoldSince(db, e.id, step.id);
+		if (since === null || e.last_error !== setupHold) await logEvent(db, e, step.id, 'held', setupHold);
+		if (since !== null && since.hours >= SETUP_HOLD_MAX_HOURS) {
+			const errMsg = setupHold === FINISH_SETUP_SENDING ? SETUP_HOLD_FAILED_SENDING : SETUP_HOLD_FAILED_FROM;
+			await db
+				.prepare(`UPDATE automation_enrollments SET status='failed', next_run_at=NULL, last_error=?, ended_at=datetime('now') WHERE id=?`)
+				.bind(errMsg, e.id)
+				.run();
+			await logEvent(db, e, step.id, 'failed', errMsg);
+			return { outcome: 'failed', sent: false };
+		}
+		await db
+			.prepare(`UPDATE automation_enrollments SET next_run_at = datetime('now', ?), last_error = ? WHERE id = ?`)
+			.bind(`+${HOLD_RECHECK_SECONDS} seconds`, setupHold, e.id)
+			.run();
+		return { outcome: 'held', sent: false };
+	}
+	const sendStep = from === step.from_email ? step : { ...step, from_email: from };
+
+	if (ctx.signature === undefined) ctx.signature = await getSignature(db);
+	const campaignId = existingCampaign?.id ?? (await getOrCreateStepCampaign(db, e.automation_id, sendStep, ctx.signature));
 
 	// 5b. #414: the automation's topic — a contact who opted out of it on the preference page
 	//     skips the email (no send) and the flow continues.
@@ -790,6 +870,7 @@ async function processEnrollment(
 
 	const res = await sendCampaignEmail(db, {
 		token: cfg.token,
+		provider: cfg.provider,
 		secret: cfg.secret,
 		baseUrl: cfg.baseUrl,
 		campaignId,
@@ -797,7 +878,7 @@ async function processEnrollment(
 		subject,
 		htmlTemplate: html,
 		textTemplate: text,
-		from: step.from_email,
+		from,
 		stream: cfg.stream,
 		trackOpens: true,
 		trackLinks: 'HtmlAndText',
@@ -810,7 +891,7 @@ async function processEnrollment(
 	if (res.accepted === 1) {
 		await bumpCampaignSent(db, campaignId);
 		await logEvent(db, e, step.id, 'sent', variant ? `${subject} (variant ${variant.toUpperCase()})` : subject);
-		if ((e.last_error ?? '').startsWith(FREQUENCY_CAP_PREFIX)) {
+		if ((e.last_error ?? '').startsWith(FREQUENCY_CAP_PREFIX) || isFinishSetupMessage(e.last_error)) {
 			await db.prepare('UPDATE automation_enrollments SET last_error = NULL WHERE id = ?').bind(e.id).run();
 		}
 		return { outcome: await advance(db, e, step), sent: true };
@@ -824,7 +905,7 @@ async function processEnrollment(
 		.run();
 
 	const code = res.results[0]?.ErrorCode ?? -1;
-	if (HARD_ERROR_CODES.has(code)) {
+	if (HARD_ERROR_CODES.has(code) || res.results[0]?.Permanent === true) {
 		const errMsg = (res.results[0]?.Message ?? `Postmark error ${code}`).slice(0, 300);
 		await db
 			.prepare(`UPDATE automation_enrollments SET status='failed', next_run_at=NULL, last_error=?, ended_at=datetime('now') WHERE id=?`)
