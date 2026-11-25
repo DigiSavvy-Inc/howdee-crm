@@ -5,7 +5,7 @@
 	// sends; the operator picks the winner — B winning becomes the step's email. Lives outside
 	// the step drawer's form (its own forms: ?/setVariant, ?/pickWinner).
 	import { enhance } from '$app/forms';
-	import type { SubmitFunction } from '@sveltejs/kit';
+	import type { SubmitFunction } from '$app/forms';
 	import { abLeader, type AbStat } from '$lib/automation-ab';
 
 	type AbTest = {

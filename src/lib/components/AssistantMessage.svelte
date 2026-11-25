@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { browser } from '$app/environment';
+	import { browser } from '$app/env';
 	import { untrack, type Snippet } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { formatMicros } from '$lib/ai-models';

@@ -1,5 +1,6 @@
 import { formFrameHeaders } from '$lib/server/form-embed'; // #515
-import { redirect, type Handle } from '@sveltejs/kit';
+import { redirect } from '@sveltejs/kit';
+import type { Handle } from '@sveltejs/kit/hooks';
 import { verifySession, sessionPredates, SESSION_COOKIE } from '$lib/server/auth';
 import { parseStamp } from '$lib/server/password';
 import { findActiveUserById } from '$lib/server/users';
@@ -15,6 +16,7 @@ import {
 } from '$lib/server/archive-public';
 import { configureReportHost } from '$lib/server/report-url';
 import { crossSiteRefused, CROSS_SITE_MESSAGE } from '$lib/server/same-origin';
+import { ensurePlatform } from '$lib/server/platform';
 
 // Routes reachable without logging in.
 const PUBLIC_PREFIXES = [
@@ -44,8 +46,8 @@ const PUBLIC_PREFIXES = [
 ];
 
 // Machine webhook endpoints meant to be called cross-origin (Postmark, forms, cron).
-// SvelteKit's built-in origin CSRF is off (svelte.config.js); we re-enforce it below for
-// everything *except* these — they're gated by their own keys, not the session cookie.
+// SvelteKit's built-in origin CSRF is off (vite.config.ts, `csrf.trustedOrigins: ['*']`); we
+// re-enforce it below for everything *except* these — they're gated by their own keys, not the session cookie.
 // #749: no route under these prefixes may act on `locals.user` (the session is never trusted here).
 // Exported for tests/csrf-exempt-routes-749.test.ts, which reads every route file under them.
 export const CSRF_EXEMPT = [
@@ -82,6 +84,8 @@ const MUST_CHANGE_ALLOWED = ['/account/password', '/logout', '/_app'];
 // (`/f/<slug>` and `/f/<slug>/thanks` with `?embed=1`). ── end #515
 
 const appHandle: Handle = async ({ event, resolve }) => {
+	// #741: adapter-cloudflare 8+ leaves `event.platform` unset; rebuild it from cloudflare:workers.
+	ensurePlatform(event);
 	// #661: the report host for the contact `report_url` guard is a Worker var, not code.
 	configureReportHost(event.platform?.env);
 	// #491: the newsletter archive on a public host (Workers route / proxy with the secret).

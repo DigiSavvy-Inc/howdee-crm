@@ -226,7 +226,7 @@
 		if (data.filter.dir !== 'desc') p.set('dir', data.filter.dir);
 		clearSelection();
 		filtersOpen = false;
-		goto(`?${p}`, { noScroll: true, keepFocus: true });
+		goto(`?${p}`, { reset: false });
 	}
 
 	function groupName(id: number | null): string {
@@ -576,7 +576,7 @@
 						{#if opt === data.per}
 							<span class="per-opt active">{opt}</span>
 						{:else}
-							<a class="per-opt" href={urlWith({ per: opt, page: 1 })} data-sveltekit-noscroll>{opt}</a>
+							<a class="per-opt" href={urlWith({ per: opt, page: 1 })} data-sveltekit-reset="false">{opt}</a>
 						{/if}
 					{/each}
 				</div>
@@ -652,11 +652,11 @@
 								aria-label="Select all on this page"
 							/>
 						</th>
-						<th><a class="sort" href={sortUrl('email')} data-sveltekit-noscroll>Email<SortCaret dir={sortArrow('email')} /></a></th>
+						<th><a class="sort" href={sortUrl('email')} data-sveltekit-reset="false">Email<SortCaret dir={sortArrow('email')} /></a></th>
 						{#each visibleColumns as c (c.key)}
 							{@const sk = sortKeyOf(c.key)}
 							{#if sk}
-								<th><a class="sort" href={sortUrl(sk)} data-sveltekit-noscroll>{c.label}<SortCaret dir={sortArrow(sk)} /></a></th>
+								<th><a class="sort" href={sortUrl(sk)} data-sveltekit-reset="false">{c.label}<SortCaret dir={sortArrow(sk)} /></a></th>
 							{:else}
 								<th>{c.label}</th>
 							{/if}
@@ -730,13 +730,13 @@
 		{#if data.pageCount > 1}
 			<nav class="pager">
 				{#if data.page > 1}
-					<a class="pg" href={urlWith({ page: data.page - 1 })} data-sveltekit-noscroll>← Prev</a>
+					<a class="pg" href={urlWith({ page: data.page - 1 })} data-sveltekit-reset="false">← Prev</a>
 				{:else}
 					<span class="pg disabled">← Prev</span>
 				{/if}
 				<span class="muted pageinfo">Page {data.page} of {data.pageCount}</span>
 				{#if data.page < data.pageCount}
-					<a class="pg" href={urlWith({ page: data.page + 1 })} data-sveltekit-noscroll>Next →</a>
+					<a class="pg" href={urlWith({ page: data.page + 1 })} data-sveltekit-reset="false">Next →</a>
 				{:else}
 					<span class="pg disabled">Next →</span>
 				{/if}

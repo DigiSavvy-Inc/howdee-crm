@@ -16,7 +16,7 @@
 	const next = $derived(timeline.more ? nextTimelineSize(timeline.size) : null);
 
 	function href(over: { tl?: string; tl_n?: number }): string {
-		const p = new URLSearchParams(page.url.searchParams);
+		const p = new URLSearchParams(page.url.searchParams.toString());
 		if (over.tl !== undefined) {
 			if (over.tl === 'all') p.delete('tl');
 			else p.set('tl', over.tl);
@@ -35,9 +35,9 @@
 	<h2>Timeline</h2>
 	{#if chips.length > 1}
 		<nav class="chips" aria-label="Timeline sources">
-			<a class="chip" class:on={timeline.filter === 'all'} aria-current={timeline.filter === 'all' ? 'true' : undefined} href={href({ tl: 'all' })} data-sveltekit-noscroll>All</a>
+			<a class="chip" class:on={timeline.filter === 'all'} aria-current={timeline.filter === 'all' ? 'true' : undefined} href={href({ tl: 'all' })} data-sveltekit-reset="false">All</a>
 			{#each chips as c (c.key)}
-				<a class="chip" class:on={timeline.filter === c.key} aria-current={timeline.filter === c.key ? 'true' : undefined} href={href({ tl: c.key })} data-sveltekit-noscroll>{c.label}</a>
+				<a class="chip" class:on={timeline.filter === c.key} aria-current={timeline.filter === c.key ? 'true' : undefined} href={href({ tl: c.key })} data-sveltekit-reset="false">{c.label}</a>
 			{/each}
 		</nav>
 	{/if}
@@ -48,7 +48,7 @@
 	{:else}
 		<ActivityFeed items={timeline.items} {now} />
 		{#if next}
-			<p class="more"><a href={href({ tl_n: next })} data-sveltekit-noscroll>Show more</a></p>
+			<p class="more"><a href={href({ tl_n: next })} data-sveltekit-reset="false">Show more</a></p>
 		{/if}
 	{/if}
 </section>

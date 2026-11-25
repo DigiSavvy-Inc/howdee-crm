@@ -19,5 +19,8 @@ export const GET: RequestHandler = async ({ platform, url, cookies, locals }) =>
 		secure: url.protocol === 'https:',
 		maxAge: 600
 	});
-	throw redirect(302, googleAuthorizeUrl(env.GOOGLE_CLIENT_ID, `${url.origin}/auth/google/callback`, state));
+	// #741: SvelteKit 3 refuses an external redirect unless it is allowed; only Google's sign-in host.
+	throw redirect(302, googleAuthorizeUrl(env.GOOGLE_CLIENT_ID, `${url.origin}/auth/google/callback`, state), {
+		external: ['https://accounts.google.com']
+	});
 };

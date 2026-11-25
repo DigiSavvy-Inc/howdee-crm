@@ -30,7 +30,7 @@
 	let deleteOpen = $state(false);
 	// #714: a suggestion's Reply step (`?reply=1`, optional `&opening=` draft line) opens the box.
 	const replyRequested = $derived(page.url.searchParams.get('reply') === '1');
-	const replyOpening = $derived(readOpening(page.url.searchParams));
+	const replyOpening = $derived(readOpening(new URLSearchParams(page.url.searchParams.toString())));
 </script>
 
 <svelte:head><title>{conv.subject} · Conversations</title></svelte:head>

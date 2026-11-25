@@ -7,7 +7,7 @@
 	import { page } from '$app/state';
 	import { beforeNavigate, invalidateAll, replaceState } from '$app/navigation';
 	import { deserialize, enhance } from '$app/forms';
-	import type { SubmitFunction } from '@sveltejs/kit';
+	import type { SubmitFunction } from '$app/forms';
 	import logomark from '$lib/assets/logomark.svg';
 	import Breadcrumbs from '$lib/components/Breadcrumbs.svelte';
 	import Icon from '$lib/components/Icon.svelte';
@@ -57,7 +57,7 @@
 	let tab = $state<Tab>(TABS.some((t) => t.key === initialTab) ? (initialTab as Tab) : 'questions');
 	function setTab(t: Tab) {
 		tab = t;
-		const u = new URL(page.url);
+		const u = new URL(page.url.href);
 		u.searchParams.set('tab', t);
 		replaceState(u, {});
 	}

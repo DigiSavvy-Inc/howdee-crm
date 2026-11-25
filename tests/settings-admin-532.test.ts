@@ -88,9 +88,16 @@ describe('#532 settings admin gating', () => {
 		expect(json).not.toContain(LUMA_SECRET);
 		expect(json).not.toContain('ops532@example.com');
 
-		const adminData = (await (general.load as any)(ev('/settings', admin))) as { isAdmin: boolean; settings: { luma_webhook_secret?: string } };
+		const adminData = (await (general.load as any)(ev('/settings', admin))) as {
+			isAdmin: boolean;
+			settings: { luma_webhook_secret?: string | null };
+			lumaSecret: { from: string };
+		};
 		expect(adminData.isAdmin).toBe(true);
-		expect(adminData.settings.luma_webhook_secret).toBe(LUMA_SECRET);
+		// #750: not even an admin's page data carries the Luma signing secret.
+		expect(adminData.settings.luma_webhook_secret).toBeNull();
+		expect(adminData.lumaSecret.from).toBe('app');
+		expect(JSON.stringify(adminData)).not.toContain(LUMA_SECRET);
 		await setSettings(db, { luma_webhook_secret: '', inbound_forward_to: '', approved_senders: '' });
 	});
 

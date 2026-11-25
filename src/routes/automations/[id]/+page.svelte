@@ -469,7 +469,7 @@
 	}
 	// One Save submits ?/setTrigger, then ?/setReentry when the policy changed — the two
 	// actions are unchanged; a trigger validation error stops before re-entry is touched.
-	const saveTrigger: import('@sveltejs/kit').SubmitFunction = () => {
+	const saveTrigger: import('$app/forms').SubmitFunction = () => {
 		triggerSaving = true;
 		triggerError = null;
 		return async ({ result, update }) => {
@@ -1168,7 +1168,7 @@
 		if (!confirm(deleteMessage(s.type, waitingByStep.get(s.id) ?? 0))) e.preventDefault();
 	}
 	/** use:enhance for both delete buttons: close the drawer if it showed the step, then the toast. */
-	function deleteEnhance(s: Step): import('@sveltejs/kit').SubmitFunction {
+	function deleteEnhance(s: Step): import('$app/forms').SubmitFunction {
 		const label = stepLabel(s);
 		return () =>
 			async ({ update, result }) => {
@@ -1278,14 +1278,14 @@
 
 	/** Move the inspector to a filter / page; a filter change goes back to page 1. */
 	function inspGo(change: { q?: string; status?: string; step?: string; page?: number }) {
-		const url = new URL(page.url);
+		const url = new URL(page.url.href);
 		const set = (k: string, v: string) => (v ? url.searchParams.set(k, v) : url.searchParams.delete(k));
 		if (change.q !== undefined) set('insp_q', change.q.trim());
 		if (change.status !== undefined) set('insp_status', change.status);
 		if (change.step !== undefined) set('insp_step', change.step);
 		set('insp_page', change.page && change.page > 1 ? String(change.page) : '');
 		url.hash = 'inspector';
-		goto(url, { replaceState: true, noScroll: true, keepFocus: true });
+		goto(url, { replace: true, reset: false });
 	}
 	function onInspSearch() {
 		clearTimeout(inspTimer);
@@ -3826,7 +3826,7 @@
 {#if showPerf}
 	<div class="perf" role="tabpanel" id="panel-performance" aria-labelledby="tab-performance" hidden={tab !== 'performance'}>
 		<!-- #397: funnel date range (UTC days). Reached / from previous / exited by goal read the timeline. -->
-		<form method="GET" class="perf-range" data-sveltekit-noscroll data-sveltekit-keepfocus>
+		<form method="GET" class="perf-range" data-sveltekit-reset="false">
 			<label>From <input type="date" name="perf_from" value={data.funnel.range.from ?? ''} /></label>
 			<label>To <input type="date" name="perf_to" value={data.funnel.range.to ?? ''} /></label>
 			<button type="submit" class="secondary sm">Apply</button>

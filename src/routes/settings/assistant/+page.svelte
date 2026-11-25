@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { kbd } from '$lib/platform.svelte';
-	import type { SubmitFunction } from '@sveltejs/kit';
+	import type { SubmitFunction } from '$app/forms';
 	import { EFFORT_LABELS, EFFORT_LEVELS, PROVIDER_LABELS, formatMicros } from '$lib/ai-models';
 	import { AI_FEATURES, AI_FEATURE_LABELS, TOOL_FEATURES } from '$lib/ai-providers';
 	import { toolLabel } from '$lib/assistant-view';

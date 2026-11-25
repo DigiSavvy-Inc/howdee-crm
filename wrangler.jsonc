@@ -11,18 +11,18 @@
 	"compatibility_flags": [
 		"nodejs_als"
 	],
-	// The SvelteKit build output. `npm run build` wraps it (scripts/wrap-worker.mjs) so it also has
-	// a `scheduled` handler: the Cron Trigger below runs the automation tick inside this Worker, so
-	// no heartbeat Worker or CRON_KEY is needed (#729). Drop `triggers` to use heartbeat/ instead.
-	"main": ".svelte-kit/cloudflare/_worker.js",
+	// No "main": the SvelteKit adapter sets the Worker entry and the static assets folder itself, and
+	// writes the deploy config to .svelte-kit/cloudflare/worker/wrangler.json (`wrangler deploy` finds
+	// it on its own). `npm run build` wraps that Worker (scripts/wrap-worker.mjs) so it also has a
+	// `scheduled` handler: the Cron Trigger below runs the automation tick inside this Worker, so no
+	// heartbeat Worker or CRON_KEY is needed (#729). Drop `triggers` to use heartbeat/ instead.
 	"triggers": {
 		// The app's own clock: one tick every minute (automations, scheduled sends, housekeeping).
 		// The engine is idempotent, so cadence only affects latency.
 		"crons": ["* * * * *"]
 	},
 	"assets": {
-		"binding": "ASSETS",
-		"directory": ".svelte-kit/cloudflare"
+		"binding": "ASSETS"
 	},
 	"workers_dev": true,
 	"preview_urls": false,

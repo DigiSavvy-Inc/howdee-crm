@@ -1,7 +1,8 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { getDB } from '$lib/server/db';
-import { safeEqual } from '$lib/server/auth';
 import { ingestMailEvent, type EventRecipient } from '$lib/server/mail-event-ingest';
+import { requestKeyMatches } from '$lib/server/request-key';
+import { BodyTooLargeError, readCappedText } from '$lib/server/webhook-body';
 
 // Postmark RecordType -> our event type.
 const TYPE_MAP: Record<string, string> = {
@@ -22,14 +23,21 @@ export const POST: RequestHandler = async (event) => {
 		console.error('webhook refused: WEBHOOK_KEY is not set');
 		return json({ error: 'unauthorized' }, { status: 401 });
 	}
-	if (!safeEqual(event.url.searchParams.get('key') ?? '', key)) {
+	// #750: the key may come in an Authorization header (Bearer, or Basic with the key as
+	// password) or as `?key=` (the webhook URLs already set in Postmark); either one matching is enough.
+	if (!requestKeyMatches(event.request, event.url, key)) {
 		return json({ error: 'unauthorized' }, { status: 401 });
 	}
 
+	// #750: the body is capped before it is parsed.
 	let payload: Record<string, any>;
 	try {
-		payload = await event.request.json();
-	} catch {
+		payload = JSON.parse(await readCappedText(event.request));
+	} catch (e) {
+		if (e instanceof BodyTooLargeError) return json({ error: 'body too large' }, { status: 413 });
+		return json({ error: 'invalid json' }, { status: 400 });
+	}
+	if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
 		return json({ error: 'invalid json' }, { status: 400 });
 	}
 
@@ -40,11 +48,12 @@ export const POST: RequestHandler = async (event) => {
 	const messageId: string | null = payload.MessageID ?? null;
 	const email: string | null = payload.Recipient ?? payload.Email ?? null;
 
-	// Map back to the recipient/campaign we sent.
+	// Map back to the recipient/campaign we sent. #750: only sends Postmark made — a message id
+	// another provider gave out never matches here.
 	let recipient: (EventRecipient & { track_id: string | null }) | null = null;
 	if (messageId) {
 		recipient = await db
-			.prepare('SELECT id, campaign_id, contact_id, email, track_id FROM recipients WHERE message_id = ? LIMIT 1')
+			.prepare("SELECT id, campaign_id, contact_id, email, track_id FROM recipients WHERE message_id = ? AND provider = 'postmark' LIMIT 1")
 			.bind(messageId)
 			.first();
 	}

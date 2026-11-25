@@ -229,6 +229,9 @@ export async function resolvePostmarkCreds(db: D1Database | null | undefined, en
 // Writes (Settings → Sending, admin-only — the route checks the role)
 
 export type MailSettingsEvent = { at: string; user_id: number | null; login: string | null; change: string };
+
+/** #750: the audit line written when an admin reveals the Postmark webhook URL in Settings → Setup. */
+export const REVEAL_WEBHOOK_EVENT = 'revealed the Postmark webhook URL (Settings → Setup)';
 type By = { id: number; github_login?: string | null } | null;
 
 export async function logMailSettingsEvent(db: D1Database, change: string, by: By, now = new Date()): Promise<void> {

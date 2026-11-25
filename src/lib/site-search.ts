@@ -2,6 +2,7 @@
 // and the endpoint (`GET /api/search`, `$lib/server/site-search.ts`).
 
 import { isMacPlatform, keyLabel } from '$lib/shortcuts';
+import { isLocalPath } from '$lib/local-path';
 
 /** A group's `total` stops at this many; the UI then shows "100+". */
 export const SEARCH_TOTAL_CAP = 100;
@@ -109,8 +110,7 @@ export function parseRecent(raw: string | null): RecentItem[] {
 					Number.isInteger(x.id) &&
 					typeof x.title === 'string' &&
 					typeof x.href === 'string' &&
-					x.href.startsWith('/') &&
-					!x.href.startsWith('//')
+					isLocalPath(x.href)
 			)
 			.slice(0, RECENT_MAX)
 			.map((x) => ({ type: x.type, id: x.id, title: x.title, sub: typeof x.sub === 'string' ? x.sub : undefined, href: x.href }));

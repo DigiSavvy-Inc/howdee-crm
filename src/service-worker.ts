@@ -15,7 +15,12 @@
 //   responses only; cleared on sign-out.
 // - Everything else (/api/*, __data.json, /auth/*, /logout, /p/*, non-GET, cross-origin)
 //   is not intercepted — straight to the network.
-import { build, files, version } from '$service-worker';
+// #741: SvelteKit 3 removed `$service-worker`. `version` is in `$app/env`; the build files and the
+// static files are `immutable` / `assets` in `$app/manifest`, as `{ path }` objects relative to the
+// base path with no leading slash. `/` + path gives the same URLs `build` / `files` held (this app
+// has no base path).
+import { version } from '$app/env';
+import { assets, immutable } from '$app/manifest';
 import { swPolicyFor } from '$lib/sw-policy';
 
 const sw = self as unknown as ServiceWorkerGlobalScope;
@@ -27,6 +32,8 @@ const RUNTIME_MAX = 150;
 const OFFLINE_URL = '/offline.html';
 const LOGIN_URL = '/login';
 
+const build = immutable.map(({ path }) => `/${path}`);
+const files = assets.map(({ path }) => `/${path}`);
 const PRECACHE_URLS = new Set([...build, ...files]);
 
 sw.addEventListener('install', (event) => {

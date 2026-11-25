@@ -5,6 +5,7 @@
 // steps do"); nothing here saves, sends, schedules, activates or enrolls.
 
 import type { SuggestionAction } from '$lib/suggestions';
+import { isLocalPath } from '$lib/local-path';
 
 /** Snooze choices: label → days. */
 export const SNOOZE_CHOICES = [
@@ -47,7 +48,7 @@ const OPENING_TYPES = new Set(['reply', 'email_them']);
 /** The href a next step opens: the stored app path, plus the draft opening when it fits. */
 export function nextStepHref(step: { type: string; url: string }, draftOpening: string | null | undefined): string {
 	const url = step.url;
-	if (!url.startsWith('/') || url.startsWith('//')) return '/';
+	if (!isLocalPath(url)) return '/'; // #741: also refuses a backslash (`/\host` = `//host`)
 	const opening = (draftOpening ?? '').trim().slice(0, OPENING_MAX);
 	if (!opening || !OPENING_TYPES.has(step.type)) return url;
 	const [path, hash] = url.split('#');

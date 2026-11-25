@@ -21,7 +21,9 @@ export const load: PageServerLoad = async (event) => {
 	// #514: the outcomes this submission fired (contact-aware rules can't be re-run here); rows
 	// from before migration 0126 evaluate the answer rules again.
 	const finish = finishFor(form, sub.answers, { fired: sub.outcomes });
-	if (finish.redirect) throw redirect(303, finish.redirect);
+	// #741: the form's redirect is any http(s) URL the admin set (cleanRedirectUrl), usually another
+	// site; SvelteKit 3 needs `external` for that (it still refuses javascript: / data:).
+	if (finish.redirect) throw redirect(303, finish.redirect, { external: true });
 	const embed = event.url.searchParams.get('embed') === '1';
 	event.setHeaders({
 		'cache-control': 'no-store',

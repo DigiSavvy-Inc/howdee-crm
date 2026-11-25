@@ -227,6 +227,12 @@ transactional stream (replies, confirmations and operator mail). A new Postmark 
 https://crm.example.com/api/webhook?key=<WEBHOOK_KEY>
 ```
 
+A key in a URL is written to Workers Logs with every request. Where the caller can set a header, send
+`Authorization: Bearer <key>` instead. `/api/webhook` and `/api/inbound` also take HTTP Basic with the key
+as the password, which is what a URL of the form `https://user:<key>@crm.example.com/api/webhook` sends.
+`/api/ingest` takes `Bearer` only. On all three, `?key=` keeps working, and on `/api/webhook` and
+`/api/inbound` a request passes when either the header or `?key=` holds the right key.
+
 Enable Open, Click, Delivery, Bounce, Spam Complaint and Subscription Change. These feed the
 campaign stats, engagement, scoring and the suppression state. On an easy install the deploy generated
 `WEBHOOK_KEY` (planned, #727). The wizard's **Create the webhook** button adds it for you, with every
@@ -327,7 +333,7 @@ npm run deploy
 Migrations run first, then the Worker ships. An install that has its database id deploys in
 classic mode: nothing else is checked or changed. To have missing secrets set as well, run
 `npm run deploy -- --setup` (#730); it never changes anything that exists. If
-you still run the heartbeat Worker, redeploy it (`cd heartbeat && npx wrangler deploy`) only when
+you still run the heartbeat Worker, redeploy it (`cd heartbeat && npx wrangler deploy --config wrangler.jsonc`) only when
 files under `heartbeat/` changed. Read the release notes for any new secret or var. The Setup page
 flags a missing one after the deploy.
 
@@ -525,6 +531,15 @@ the end, wrangler prints the Worker's `workers.dev` URL.
 Always deploy this way. `wrangler deploy` on its own can ship code ahead of the schema. Never run a
 migration file's SQL by hand.
 
+If you ever run `wrangler deploy` by hand, always run `npm run build` (or just `npm run deploy`)
+right before it. The deploy uploads only a build the wrap step finished, then deletes
+`.wrangler/deploy/config.json`. A `wrangler deploy` with no fresh build then reads your
+`wrangler.jsonc`, which has no `main` and an assets binding but no assets folder, and stops with an
+error about the assets binding needing a Worker script ("Cannot use assets with a binding in an
+assets-only Worker") instead of uploading an old build. That only holds while `wrangler.jsonc`
+keeps `"assets": { "binding": "ASSETS" }` with no `"directory"`; `npm run deploy` refuses to run
+otherwise.
+
 ### Optional: the heartbeat Worker
 
 The app Worker runs the tick itself ([the cron](#the-cron)), so you can skip this step and go on to
@@ -550,11 +565,15 @@ In `heartbeat/wrangler.jsonc`, set `name` (for example `your-crm-heartbeat`) and
 service binding, never over the public URL.
 
 ```sh
-npx wrangler secret put CRON_KEY     # the same value as the app's CRON_KEY, byte for byte
-npx wrangler deploy
+npx wrangler secret put CRON_KEY --config wrangler.jsonc   # the same value as the app's CRON_KEY, byte for byte
+npx wrangler deploy --config wrangler.jsonc
 cd ..
 npx wrangler secret put CRON_KEY     # on the app Worker too, the same value
 ```
+
+Inside `heartbeat/`, always pass `--config wrangler.jsonc` (deploy, secret, tail, dev): an app build
+leaves `.wrangler/deploy/config.json` in the repo root, wrangler finds it from any subfolder, and a
+heartbeat command without `--config` then stops with "Found both a user configuration file".
 
 If the two `CRON_KEY` values differ, every tick from the heartbeat answers 401 and it runs no
 automation. Then open the app and create the first admin at `/setup` (section 3). The Setup page

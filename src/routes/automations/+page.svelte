@@ -4,7 +4,7 @@
 	import BulkBar from '$lib/components/BulkBar.svelte';
 	import RecipeCards from '$lib/components/automations/RecipeCards.svelte';
 	import { page } from '$app/state';
-	import type { SubmitFunction } from '@sveltejs/kit';
+	import type { SubmitFunction } from '$app/forms';
 	import { triggerSummary } from '$lib/automation-trigger';
 	import { shortDate } from '$lib/automation-editor';
 	import { goto } from '$app/navigation';

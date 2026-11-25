@@ -5,7 +5,7 @@
 	// the period lives in the URL (`?period=`). Tiles and rows are links to the matching
 	// /contacts filter.
 	import { enhance } from '$app/forms';
-	import { browser } from '$app/environment';
+	import { browser } from '$app/env';
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import StatGroup from '$lib/components/StatGroup.svelte';
@@ -79,7 +79,7 @@
 		const fd = new FormData(e.currentTarget as HTMLFormElement);
 		const picked = fd.getAll('t').map(String);
 		const all = picked.length === 0 || picked.length === feed.typeOptions.length;
-		goto(urlWith({ feed_types: all ? null : picked.join(',') }), { noScroll: true, keepFocus: true });
+		goto(urlWith({ feed_types: all ? null : picked.join(',') }), { reset: false });
 	}
 	const exportHref = $derived.by(() => {
 		const p = new URLSearchParams(filterParams);
@@ -111,7 +111,7 @@
 					class:on={overview.period === p.key}
 					aria-current={overview.period === p.key ? 'true' : undefined}
 					href={urlWith({ period: p.key === '30d' ? null : p.key })}
-					data-sveltekit-noscroll>{p.label}</a
+					data-sveltekit-reset="false">{p.label}</a
 				>
 			{/each}
 		</nav>
@@ -284,8 +284,8 @@
 						<button type="submit">Apply</button>
 					</form>
 				</details>
-				<a class="chip" class:on={feed.period} href={urlWith({ feed_period: feed.period ? null : '1' })} aria-current={feed.period ? 'true' : undefined} data-sveltekit-noscroll>This period ({periodLabel})</a>
-				<a class="chip" class:on={feed.group} href={urlWith({ feed_group: feed.group ? null : '1' })} aria-current={feed.group ? 'true' : undefined} data-sveltekit-noscroll>Group by contact</a>
+				<a class="chip" class:on={feed.period} href={urlWith({ feed_period: feed.period ? null : '1' })} aria-current={feed.period ? 'true' : undefined} data-sveltekit-reset="false">This period ({periodLabel})</a>
+				<a class="chip" class:on={feed.group} href={urlWith({ feed_group: feed.group ? null : '1' })} aria-current={feed.group ? 'true' : undefined} data-sveltekit-reset="false">Group by contact</a>
 			</div>
 			{#if (feed.groups ? feed.groups.length : feed.items.length) === 0}
 				<p class="muted note">No activity for these contacts{feed.period ? ' in this period' : ''}.</p>

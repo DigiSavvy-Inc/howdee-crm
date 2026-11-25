@@ -112,6 +112,49 @@ async function findHashedKey(db: D1Database, provided: string): Promise<WebhookK
 	return pick(old);
 }
 
+/**
+ * #750: how many keys are still stored in plaintext (made before migration 0138 and never used
+ * since). 0 before the migration is applied.
+ */
+export async function plaintextKeyCount(db: D1Database): Promise<number> {
+	try {
+		const rows = await db
+			.prepare('SELECT token FROM webhook_keys WHERE token_hash IS NULL')
+			.all<{ token: string | null }>();
+		return rows.results.filter((r) => isPlaintextToken(r.token)).length;
+	} catch (e) {
+		if (isPreMigrationKeyError(e)) return 0;
+		throw e;
+	}
+}
+
+/**
+ * #750: hash every key still stored in plaintext, the same move `findHashedKey` makes on a key's
+ * first use: `token_hash` + `token_last4` written, the plaintext replaced by the placeholder. The
+ * keys keep working (callers send the same key). Revoked keys never hold plaintext (0138, revoke).
+ * Returns how many were hashed; `pending` = none were written because 0138 isn't applied.
+ */
+export async function hashPlaintextKeys(db: D1Database): Promise<{ hashed: number; pending?: true }> {
+	let rows: { id: number; token: string | null }[];
+	try {
+		rows = (await db.prepare('SELECT id, token FROM webhook_keys WHERE token_hash IS NULL').all<{ id: number; token: string | null }>()).results;
+	} catch (e) {
+		if (isPreMigrationKeyError(e)) return { hashed: 0, pending: true };
+		throw e;
+	}
+	let hashed = 0;
+	for (const r of rows) {
+		if (!r.token || !isPlaintextToken(r.token)) continue;
+		const hash = await sha256Hex(r.token);
+		const res = await db
+			.prepare('UPDATE webhook_keys SET token_hash = ?, token_last4 = ?, token = ? WHERE id = ? AND token_hash IS NULL AND token = ?')
+			.bind(hash, r.token.slice(-4), hashedPlaceholder(hash), r.id, r.token)
+			.run();
+		if ((res.meta?.changes ?? 0) > 0) hashed++;
+	}
+	return { hashed };
+}
+
 function pick(r: WebhookKey): WebhookKey {
 	return {
 		id: r.id,

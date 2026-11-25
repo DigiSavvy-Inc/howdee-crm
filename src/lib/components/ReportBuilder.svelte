@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { browser } from '$app/environment';
+	import { browser } from '$app/env';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
@@ -188,9 +188,9 @@
 				}
 			}
 			pushed = encoded;
-			const url = new URL(page.url);
+			const url = new URL(page.url.href);
 			url.searchParams.set('spec', JSON.stringify(parsed));
-			goto(`${url.pathname}?${url.searchParams}`, { replaceState: true, keepFocus: true, noScroll: true });
+			goto(`${url.pathname}?${url.searchParams}`, { replace: true, reset: false });
 		}, 400);
 	}
 

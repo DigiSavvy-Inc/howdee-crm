@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import Breadcrumbs from '$lib/components/Breadcrumbs.svelte';
-	import type { SubmitFunction } from '@sveltejs/kit';
+	import type { SubmitFunction } from '$app/forms';
 	import Modal from '$lib/components/Modal.svelte';
 	import BulkBar from '$lib/components/BulkBar.svelte';
 	import SortCaret from '$lib/components/SortCaret.svelte';

@@ -8,7 +8,8 @@
  * - **classic** — an existing install (wrangler.jsonc has a real D1 database_id, no unfinished
  *   install, no flag). Exactly the pre-#730 deploy: `wrangler d1 migrations apply <database_name>
  *   --remote`, `npm run build`, `wrangler deploy`, interactive, nothing listed, created, written or
- *   generated.
+ *   generated. (#741: the upload is refused unless the build is the wrapped one, and the build's
+ *   deploy redirect is deleted after it; both apply to install mode too.)
  * - **install** — a new install (config just written from the template, no or all-zero database_id,
  *   a pending-install marker, or `--setup` / `--new-setup-token`). Order: database → bucket →
  *   migrations → build → upload (with any missing secrets) → setup link → address. A failing step
@@ -25,13 +26,29 @@ import {
 	readConfig,
 	readDatabaseBinding,
 	setDatabaseId,
-	setVar
+	setVar,
+	stripJsonc
 } from './install-config.mjs';
+import { WRAPPER_MARKER } from './wrap-worker-lib.mjs';
 
 export const CONFIG_FILE = 'wrangler.jsonc';
 export const TEMPLATE_FILE = 'wrangler.example.jsonc';
 /** Pending-install marker: git-ignored (.wrangler), holds step and resource names only, never a secret. */
 export const MARKER_FILE = '.wrangler/howdee-install.json';
+
+/**
+ * #741: `npm run build` (adapter-cloudflare 9) writes this redirect; `wrangler deploy` with no
+ * `--config` uploads the config it names. The deploy deletes it after its last upload, so a later
+ * hand-run `wrangler deploy` without a fresh build reads wrangler.jsonc, which has an assets
+ * binding but no `main` and no assets `directory`, and wrangler stops with "Cannot use assets with
+ * a binding in an assets-only Worker" instead of uploading a stale build; commands run from
+ * heartbeat/ never find it. That only holds while wrangler.jsonc keeps that shape, so
+ * `configLayoutProblem` refuses to deploy otherwise.
+ */
+export const DEPLOY_REDIRECT = '.wrangler/deploy/config.json';
+/** #741: the adapter's generated deploy config, and the Worker entry the build wraps. */
+export const BUILT_CONFIG = '.svelte-kit/cloudflare/worker/wrangler.json';
+export const BUILT_ENTRY = '.svelte-kit/cloudflare/worker/index.js';
 
 /** Command-line flags (`npm run deploy -- --setup`). */
 export const FLAGS = Object.freeze({
@@ -426,6 +443,97 @@ function writeMarker(ctx, marker) {
 	ctx.write(MARKER_FILE, `${JSON.stringify(marker, null, '\t')}\n`);
 }
 
+/**
+ * `base` joined with a relative POSIX path, `.` / `..` resolved; null when `rel` is absolute or
+ * climbs above the root.
+ * @param {string} base
+ * @param {string} rel
+ */
+export function joinPosix(base, rel) {
+	if (rel.startsWith('/') || /^[A-Za-z]:[\\/]/.test(rel)) return null;
+	/** @type {string[]} */
+	const out = [];
+	for (const part of `${base}/${rel}`.replace(/\\/g, '/').split('/')) {
+		if (part === '' || part === '.') continue;
+		if (part === '..') {
+			if (!out.length) return null;
+			out.pop();
+		} else out.push(part);
+	}
+	return out.join('/');
+}
+
+/**
+ * #741: why the build in the working folder must not be uploaded, or null when it may: the
+ * redirect must name the adapter's generated config, and the Worker entry must be the wrapped one
+ * (scripts/wrap-worker.mjs), so a `wrangler deploy` never ships a Worker without its clock or a
+ * half-written build.
+ * @param {Pick<DeployContext, 'exists' | 'read'>} ctx
+ * @returns {string | null}
+ */
+export function builtWorkerProblem(ctx) {
+	const rebuild = 'Run `npm run build` (or `npm run deploy`) and try again.';
+	if (ctx.exists(CONFIG_FILE)) {
+		const layout = configLayoutProblem(ctx.read(CONFIG_FILE));
+		if (layout) return layout.replace(' Nothing was run.', ' Nothing was uploaded.');
+	}
+	if (!ctx.exists(DEPLOY_REDIRECT)) return `Nothing to upload: ${DEPLOY_REDIRECT} is missing, so there is no fresh build. ${rebuild}`;
+	/** @type {unknown} */
+	let configPath;
+	try {
+		configPath = JSON.parse(ctx.read(DEPLOY_REDIRECT))?.configPath;
+	} catch {
+		return `${DEPLOY_REDIRECT} is not valid JSON. ${rebuild}`;
+	}
+	const target = typeof configPath === 'string' ? joinPosix('.wrangler/deploy', configPath) : null;
+	if (target !== BUILT_CONFIG) {
+		return `${DEPLOY_REDIRECT} points at ${JSON.stringify(configPath ?? null)}, not ${BUILT_CONFIG}. ${rebuild}`;
+	}
+	if (!ctx.exists(BUILT_CONFIG)) return `${BUILT_CONFIG} is missing. ${rebuild}`;
+	if (!ctx.exists(BUILT_ENTRY) || !ctx.read(BUILT_ENTRY).startsWith(WRAPPER_MARKER)) {
+		return `${BUILT_ENTRY} is not the wrapped Worker (scripts/wrap-worker.mjs did not run on this build), so it has no scheduled handler. ${rebuild}`;
+	}
+	return null;
+}
+
+/**
+ * #741: why wrangler.jsonc is not on the adapter-cloudflare 9 shape, or null. No `main` (the adapter
+ * sets the entry), and `assets` with a `binding` but no `directory` (the adapter sets the folder).
+ * With that shape a hand-run `wrangler deploy` that finds no build redirect stops with an error; with
+ * an old `directory` and no binding it could publish the static files alone.
+ * @param {string} text contents of wrangler.jsonc
+ * @returns {string | null}
+ */
+export function configLayoutProblem(text) {
+	/** @type {any} */
+	let cfg;
+	try {
+		cfg = JSON.parse(stripJsonc(text));
+	} catch (e) {
+		return `${CONFIG_FILE} isn't valid JSONC: ${e instanceof Error ? e.message : e}`;
+	}
+	/** @type {string[]} */
+	const fixes = [];
+	if (cfg?.main !== undefined) fixes.push('remove "main"');
+	const assets = cfg?.assets;
+	if (assets && typeof assets === 'object' && assets.directory !== undefined) fixes.push('remove "directory" under "assets"');
+	if (!assets || typeof assets !== 'object' || typeof assets.binding !== 'string' || !assets.binding) fixes.push('set "assets": { "binding": "ASSETS" }');
+	if (!fixes.length) return null;
+	return `${CONFIG_FILE} still has the build settings from before SvelteKit 3 (#741): ${fixes.join(', ')}. The build sets the Worker entry and the assets folder itself now. Nothing was run.`;
+}
+
+/**
+ * #741: delete the build's deploy redirect (only that file; the rest of .wrangler stays).
+ * @param {DeployContext} ctx
+ */
+function dropRedirect(ctx) {
+	try {
+		if (ctx.exists(DEPLOY_REDIRECT)) ctx.remove(DEPLOY_REDIRECT);
+	} catch (e) {
+		ctx.log(`Warning: couldn't delete ${DEPLOY_REDIRECT} (${e instanceof Error ? e.message : String(e)}). Delete it by hand before running wrangler in heartbeat/.`);
+	}
+}
+
 // ---------------------------------------------------------------------------------------------
 
 /**
@@ -450,6 +558,12 @@ export function runDeploy(ctx) {
 		ctx.log(`Wrote ${CONFIG_FILE} from ${TEMPLATE_FILE}.`);
 	}
 	const text = ctx.read(CONFIG_FILE);
+	// #741: before any migration or build, so an old config never half-deploys.
+	const layout = configLayoutProblem(text);
+	if (layout) {
+		ctx.log(layout);
+		return 1;
+	}
 	const { mode, reason } = chooseMode({
 		configExisted,
 		databaseId: readDatabaseBinding(text).id,
@@ -467,8 +581,17 @@ export function runDeploy(ctx) {
 			return 1;
 		}
 		for (const step of deployPlan(databaseName)) {
+			const upload = step[0] === 'wrangler' && step[1] === 'deploy';
+			if (upload) {
+				const problem = builtWorkerProblem(ctx);
+				if (problem) {
+					ctx.log(problem);
+					return 1;
+				}
+			}
 			const code = ctx.run(step).code;
 			if (code !== 0) return code;
+			if (upload) dropRedirect(ctx);
 		}
 		return 0;
 	}
@@ -645,6 +768,12 @@ function runInstall(ctx, text, flags, configExisted) {
 	done('build');
 
 	// 5. Upload, with the missing secrets in the same version (no window without SESSION_SECRET).
+	// #741: only the wrapped build this run just made.
+	const problem = builtWorkerProblem(ctx);
+	if (problem) {
+		ctx.log(problem);
+		return 1;
+	}
 	const upload = newNames.length
 		? ctx.withSecretsFile(secrets, (path) => {
 				const step = ['wrangler', 'deploy', '--secrets-file', path];
@@ -668,12 +797,17 @@ function runInstall(ctx, text, flags, configExisted) {
 
 		// 6. A new install has no public address yet: use the workers.dev one, then upload again so
 		// the Worker gets the var (no build needed). A failure here only warns.
+		// #741: `wrangler deploy` uploads the config the build generated from wrangler.jsonc
+		// (.svelte-kit/cloudflare/worker/wrangler.json, via .wrangler/deploy/config.json), which was
+		// written before this var, so the upload passes it with `--var` too. The next build picks it
+		// up from wrangler.jsonc.
 		if (!configured && workerUrl) {
 			text2 = setVar(text2, 'PUBLIC_BASE_URL', workerUrl);
 			ctx.write(CONFIG_FILE, text2);
 			ctx.log(`Set PUBLIC_BASE_URL to ${workerUrl} in ${CONFIG_FILE}.`);
-			const again = ['wrangler', 'deploy'];
-			const r2 = capture(ctx, again);
+			const again = ['wrangler', 'deploy', '--var', `PUBLIC_BASE_URL:${workerUrl}`];
+			const stale = builtWorkerProblem(ctx);
+			const r2 = stale ? { code: 1, stdout: '', stderr: stale } : capture(ctx, again);
 			if (r2.code !== 0) {
 				finished = false;
 				fail(ctx, again, r2);
@@ -691,6 +825,9 @@ function runInstall(ctx, text, flags, configExisted) {
 		base = configured ?? workerUrl;
 		ctx.log(`Warning: the app is live, but a step after the upload failed (${e instanceof Error ? e.message : String(e)}). Run npm run deploy again to finish.`);
 	}
+	// #741: no more uploads in this run (a failed second upload is retried by `npm run deploy`,
+	// which builds again), so the redirect goes now.
+	dropRedirect(ctx);
 
 	// 7. Closing line.
 	const where = base ?? "your Worker's workers.dev address";

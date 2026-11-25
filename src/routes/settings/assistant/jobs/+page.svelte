@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { page } from '$app/state';
-	import type { SubmitFunction } from '@sveltejs/kit';
+	import type { SubmitFunction } from '$app/forms';
 	import Breadcrumbs from '$lib/components/Breadcrumbs.svelte';
 	import { EFFORT_LABELS, formatMicros } from '$lib/ai-models';
 	import {

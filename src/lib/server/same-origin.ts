@@ -1,5 +1,5 @@
-// #749: the hook's cross-site request rule (SvelteKit's own checkOrigin is off, see
-// svelte.config.js). Pure, so the tests can call it directly; `hooks.server.ts` applies it
+// #749: the hook's cross-site request rule (SvelteKit's own origin check is off, see
+// `csrf.trustedOrigins` in vite.config.ts). Pure, so the tests can call it directly; `hooks.server.ts` applies it
 // to every request that is not on its CSRF-exempt list.
 
 export const MUTATING_METHODS = ['POST', 'PUT', 'PATCH', 'DELETE'];

@@ -4,6 +4,7 @@ import { resolveMailCredentials } from '$lib/server/mail/config';
 import { parseResendWebhook, type ResendMapped } from '$lib/server/mail/resend';
 import { WebhookAuthError } from '$lib/server/mail/provider';
 import { ingestMailEvent, type EventRecipient } from '$lib/server/mail-event-ingest';
+import { BodyTooLargeError, readCappedText } from '$lib/server/webhook-body';
 
 // #702: Resend events (docs/sending-providers.md → Resend). Public through the `/api/webhook`
 // prefix (PUBLIC_PREFIXES, CSRF_EXEMPT, REDIRECT_EXEMPT); the Svix signature is its only gate and
@@ -27,9 +28,18 @@ export const POST: RequestHandler = async (event) => {
 		return json({ error: 'unauthorized' }, { status: 401 });
 	}
 
+	// #750: the body is capped before the signature is checked or anything is parsed.
+	let body: string;
+	try {
+		body = await readCappedText(event.request);
+	} catch (e) {
+		if (e instanceof BodyTooLargeError) return json({ error: 'body too large' }, { status: 413 });
+		throw e;
+	}
+
 	let mapped: ResendMapped[];
 	try {
-		mapped = await parseResendWebhook(event.request, secret);
+		mapped = await parseResendWebhook(new Request(event.request.url, { method: 'POST', headers: event.request.headers, body }), secret);
 	} catch (e) {
 		if (e instanceof WebhookAuthError) return json({ error: 'unauthorized' }, { status: 401 });
 		throw e;
@@ -52,7 +62,8 @@ export const POST: RequestHandler = async (event) => {
 		let recipient: (EventRecipient & { track_id: string | null }) | null = null;
 		if (m.messageId) {
 			recipient = await db
-				.prepare('SELECT id, campaign_id, contact_id, email, track_id FROM recipients WHERE message_id = ? LIMIT 1')
+				// #750: only sends Resend made.
+				.prepare("SELECT id, campaign_id, contact_id, email, track_id FROM recipients WHERE message_id = ? AND provider = 'resend' LIMIT 1")
 				.bind(m.messageId)
 				.first();
 		}

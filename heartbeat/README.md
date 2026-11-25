@@ -5,7 +5,7 @@ endpoint on a cron schedule.
 
 **Optional since #729.** The app Worker runs its own clock: `npm run build` wraps the SvelteKit
 build (whose adapter worker exports only `fetch`) with a `scheduled` handler
-(`scripts/wrap-worker.mjs`; `main` stays `.svelte-kit/cloudflare/_worker.js`), and
+(`scripts/wrap-worker.mjs`, on the adapter's `.svelte-kit/cloudflare/worker/index.js`), and
 `wrangler.example.jsonc` has `triggers.crons`. A new install from the template needs neither this
 Worker nor `CRON_KEY` (`/api/health` still uses `CRON_KEY` as its key). Installs that already run
 this Worker keep working unchanged; to use only this Worker, leave `triggers` out of the app's
@@ -43,17 +43,22 @@ npx wrangler login
 #    in prod — the binding handles it.
 
 # 3. Set the shared secret — MUST be byte-for-byte identical to the app's CRON_KEY.
-npx wrangler secret put CRON_KEY
+npx wrangler secret put CRON_KEY --config wrangler.jsonc
 
 # 4. Deploy
-npx wrangler deploy
+npx wrangler deploy --config wrangler.jsonc
 ```
+
+Always pass `--config wrangler.jsonc` here (#741). wrangler looks for `.wrangler/deploy/config.json`
+in this folder **and every parent**; an app build leaves one in the repo root, and without an
+explicit `--config` a heartbeat command stops with "Found both a user configuration file ... do not
+share the same base path".
 
 The same `CRON_KEY` must also be set on the **app** worker (`wrangler secret put CRON_KEY`
 from the repo root). If they differ, every tick returns 401 and no automations run.
 
 After deploy, confirm the cron trigger shows in the Cloudflare dashboard under this
-worker's *Triggers*, and that `wrangler tail` logs `automation tick ok: {...}` on the
+worker's *Triggers*, and that `npx wrangler tail --config wrangler.jsonc` logs `automation tick ok: {...}` on the
 next fire.
 
 ## Local testing
@@ -63,7 +68,7 @@ next fire.
 in the repo root):
 
 ```sh
-npx wrangler dev --port 8787 --local
+npx wrangler dev --config wrangler.jsonc --port 8787 --local
 # real cron path:
 curl "http://localhost:8787/cdn-cgi/handler/scheduled"
 # manual fetch trigger:

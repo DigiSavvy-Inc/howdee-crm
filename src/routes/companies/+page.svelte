@@ -51,7 +51,7 @@
 	}
 	function navigate(value: string) {
 		lastPushed = value;
-		goto(params({ q: value }), { replaceState: true, keepFocus: true, noScroll: true });
+		goto(params({ q: value }), { replace: true, reset: false });
 	}
 	function onSearchInput() {
 		clearTimeout(searchTimer);
@@ -170,7 +170,7 @@
 	<nav class="filter-chips" aria-label="Filter companies">
 		{#each data.filters as f (f.key)}
 			<a class="chip-link" class:on={data.filter === f.key} href={filterUrl(f.key)}
-				aria-current={data.filter === f.key ? 'page' : undefined} data-sveltekit-noscroll>{f.label}</a>
+				aria-current={data.filter === f.key ? 'page' : undefined} data-sveltekit-reset="false">{f.label}</a>
 		{/each}
 	</nav>
 	<div class="search">
@@ -194,14 +194,14 @@
 			<table>
 				<thead>
 					<tr>
-							<th><a class="sort" href={sortUrl('name')} data-sveltekit-noscroll>Name<SortCaret dir={arrow('name')} /></a></th>
+							<th><a class="sort" href={sortUrl('name')} data-sveltekit-reset="false">Name<SortCaret dir={arrow('name')} /></a></th>
 							<th>Domain</th><th>Contacts</th>
-							<th class="num"><a class="sort" href={sortUrl('hours_30d')} data-sveltekit-noscroll>Hours 30d<SortCaret dir={arrow('hours_30d')} /></a></th>
-							<th class="num"><a class="sort" href={sortUrl('open_issues')} data-sveltekit-noscroll>Open issues<SortCaret dir={arrow('open_issues')} /></a></th>
+							<th class="num"><a class="sort" href={sortUrl('hours_30d')} data-sveltekit-reset="false">Hours 30d<SortCaret dir={arrow('hours_30d')} /></a></th>
+							<th class="num"><a class="sort" href={sortUrl('open_issues')} data-sveltekit-reset="false">Open issues<SortCaret dir={arrow('open_issues')} /></a></th>
 							{#if data.billing}
-								<th class="num"><a class="sort" href={sortUrl('outstanding')} data-sveltekit-noscroll>Outstanding<SortCaret dir={arrow('outstanding')} /></a></th>
+								<th class="num"><a class="sort" href={sortUrl('outstanding')} data-sveltekit-reset="false">Outstanding<SortCaret dir={arrow('outstanding')} /></a></th>
 							{/if}
-							<th><a class="sort" href={sortUrl('last_touch')} data-sveltekit-noscroll>Last touch<SortCaret dir={arrow('last_touch')} /></a></th>
+							<th><a class="sort" href={sortUrl('last_touch')} data-sveltekit-reset="false">Last touch<SortCaret dir={arrow('last_touch')} /></a></th>
 						</tr>
 				</thead>
 				<tbody>
@@ -244,10 +244,10 @@
 		</div>
 		{#if data.pageCount > 1}
 			<nav class="pager">
-				{#if data.page > 1}<a class="pg" href={pageUrl(data.page - 1)} data-sveltekit-noscroll>← Prev</a>
+				{#if data.page > 1}<a class="pg" href={pageUrl(data.page - 1)} data-sveltekit-reset="false">← Prev</a>
 				{:else}<span class="pg disabled">← Prev</span>{/if}
 				<span class="muted pageinfo">Showing {from}–{to} of {data.total}</span>
-				{#if data.page < data.pageCount}<a class="pg" href={pageUrl(data.page + 1)} data-sveltekit-noscroll>Next →</a>
+				{#if data.page < data.pageCount}<a class="pg" href={pageUrl(data.page + 1)} data-sveltekit-reset="false">Next →</a>
 				{:else}<span class="pg disabled">Next →</span>{/if}
 			</nav>
 		{/if}

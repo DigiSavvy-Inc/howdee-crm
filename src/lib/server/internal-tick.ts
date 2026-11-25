@@ -1,6 +1,6 @@
 // #729: the app Worker runs its own clock. After `vite build`, `scripts/wrap-worker.mjs` moves the
-// adapter's `.svelte-kit/cloudflare/_worker.js` to `_app.js` and writes a new `_worker.js` that
-// imports it and this file and exports `withClock(app)`. Its `scheduled` handler (a Cron Trigger on
+// adapter's Worker entry (`.svelte-kit/cloudflare/worker/index.js` since #741) to `_app.js` and
+// writes a new `index.js` that imports it and this file and exports `withClock(app)`. Its `scheduled` handler (a Cron Trigger on
 // the app Worker, from `triggers.crons`) runs one tick by calling the app's own fetch handler with
 // an internal request. Every build is wrapped; whether the handler ever fires is decided only by
 // `triggers.crons` in the wrangler config.
@@ -13,7 +13,15 @@
 // neither CRON_KEY nor a network hop. `Symbol.for` (the global registry) keeps the marker the same
 // value in the wrapper's copy of this module and in the SvelteKit bundle's copy.
 //
-// No imports: the generated wrapper pulls this file into the wrangler bundle on its own.
+// #741: with adapter-cloudflare 9 the app no longer reads the `env` argument of `fetch(req, env)`;
+// it reads `env` from `cloudflare:workers` (src/lib/server/platform.ts builds `platform.env` from
+// it). So the tick runs the app's fetch inside `withEnv(markedEnv, …)`, which makes the module's
+// `env` the marked one for that call; the marked env is still passed as the argument too.
+//
+// One import only (`cloudflare:workers`, a runtime built-in): `npm run build` transpiles this file
+// on its own next to the unbundled adapter output (scripts/wrap-worker.mjs), so it must not import
+// anything that needs bundling.
+import { withEnv } from 'cloudflare:workers';
 
 /** The env marker of a tick started by the app's own Cron Trigger. */
 export const INTERNAL_TICK: unique symbol = Symbol.for('howdee-crm.internal-tick');
@@ -71,7 +79,8 @@ type FetchHandler = (req: Request, env: any, ctx: any) => Response | Promise<Res
 export async function runInternalTick(appFetch: FetchHandler, env: object, ctx: unknown): Promise<{ status: number; body: string }> {
 	try {
 		const req = new Request(`${INTERNAL_TICK_ORIGIN}${TICK_PATH}`, { method: 'POST' });
-		const res = await appFetch(req, { ...env, [INTERNAL_TICK]: true }, ctx);
+		const marked = { ...env, [INTERNAL_TICK]: true };
+		const res = await (withEnv(marked, () => appFetch(req, marked, ctx)) as Promise<Response>);
 		const body = await res.text();
 		if (!res.ok) console.error(`automation tick (cron) failed: ${res.status} ${body.slice(0, 300)}`);
 		return { status: res.status, body };

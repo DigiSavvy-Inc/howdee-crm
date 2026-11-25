@@ -13,7 +13,7 @@ import {
 	seenOriginProblem
 } from '$lib/server/public-url';
 import { mailSetup, MAIL_PROVIDERS } from '$lib/server/mail';
-import { mailKeyReady, postmarkTokenInfo } from '$lib/server/mail/config';
+import { logMailSettingsEvent, mailKeyReady, postmarkTokenInfo, REVEAL_WEBHOOK_EVENT } from '$lib/server/mail/config';
 import { switchToCustomUnsubscribe, withSendingCreds, type DomainAuthEnv } from '$lib/server/domain-auth';
 import { webhookUrlFor } from '$lib/server/mail/postmark-webhook';
 import {
@@ -188,6 +188,14 @@ export const actions: Actions = {
 		const { creds } = await mailSetup(getDB(event), event.platform?.env);
 		const key = creds.postmark.webhookKey;
 		if (!key) return fail(400, { step: 'webhook', error: 'WEBHOOK_KEY is not set. Run `npx wrangler secret put WEBHOOK_KEY` first.' });
+		// #750: every reveal is recorded (who and when, never the key) before the URL is shown.
+		// No audit row, no URL.
+		try {
+			await logMailSettingsEvent(getDB(event), REVEAL_WEBHOOK_EVENT, event.locals.user ?? null);
+		} catch (e) {
+			console.error('setup: reveal audit failed:', e instanceof Error ? e.message.slice(0, 120) : 'error');
+			return fail(500, { step: 'webhook', error: 'Could not record this action. Try again.' });
+		}
 		return { step: 'webhook', revealed: webhookUrlFor(await publicBaseUrlFor(event), key) };
 	},
 

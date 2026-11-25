@@ -3,8 +3,10 @@
 import { fail, type RequestEvent } from '@sveltejs/kit';
 import { createSession, SESSION_COOKIE, SESSION_MAX_AGE } from './auth';
 import { getDB } from './db';
-import { credentialStamp, hashPassword, passwordPolicyError, verifyPassword } from './password';
+import { credentialStamp, hashPassword, passwordPolicyError } from './password';
 import { getPasswordHash, setUserPassword } from './users';
+import { checkCurrentPassword, currentPasswordLockedMessage } from './login-attempts';
+import { requestIp } from './account-tokens';
 
 /**
  * Set (no password yet) or change (current password required unless an admin-generated one
@@ -26,9 +28,10 @@ export async function changeOwnPassword(event: RequestEvent) {
 	const stored = await getPasswordHash(db, user.id);
 	if (stored && !user.mustChangePassword) {
 		if (!current) return fail(400, { pwError: 'Enter your current password.' });
-		if (!(await verifyPassword(current, stored))) {
-			return fail(400, { pwError: 'Your current password is incorrect.' });
-		}
+		// #750: wrong current passwords count toward a lockout, like sign-in.
+		const check = await checkCurrentPassword(db, { userId: user.id, password: current, storedHash: stored, ip: requestIp(event) });
+		if (!check.ok && check.status === 429) return fail(429, { pwError: currentPasswordLockedMessage(check.minutes) });
+		if (!check.ok) return fail(400, { pwError: 'Your current password is incorrect.' });
 	}
 	const policy = passwordPolicyError(next, user.github_login);
 	if (policy) return fail(400, { pwError: policy });

@@ -2,7 +2,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import SortCaret from '$lib/components/SortCaret.svelte';
 	import { enhance, deserialize } from '$app/forms';
-	import { browser } from '$app/environment';
+	import { browser } from '$app/env';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import Papa from 'papaparse';
@@ -187,12 +187,7 @@
 
 	function navigate(value: string) {
 		lastPushed = value;
-		goto(urlWith({ q: value || null, page: null }), {
-			replaceState: true,
-			keepFocus: true,
-			noScroll: true,
-			invalidateAll: false
-		});
+		goto(urlWith({ q: value || null, page: null }), { replace: true, reset: false });
 	}
 
 	function onSearchInput() {
@@ -851,15 +846,15 @@
 				<thead>
 					<tr>
 						<th class="cb"><input type="checkbox" checked={allSelected} onchange={toggleAll} /></th>
-						<th><a class="sort" href={sortUrl('email')} data-sveltekit-noscroll>Email<SortCaret dir={arrow('email')} /></a></th>
-						{#if show.has('name')}<th><a class="sort" href={sortUrl('name')} data-sveltekit-noscroll>Name<SortCaret dir={arrow('name')} /></a></th>{/if}
-						{#if show.has('company')}<th><a class="sort" href={sortUrl('company')} data-sveltekit-noscroll>Company<SortCaret dir={arrow('company')} /></a></th>{/if}
-						{#if show.has('subscribed')}<th><a class="sort" href={sortUrl('subscribed')} data-sveltekit-noscroll>Status<SortCaret dir={arrow('subscribed')} /></a></th>{/if}
-						{#if show.has('source')}<th><a class="sort" href={sortUrl('source')} data-sveltekit-noscroll>Source<SortCaret dir={arrow('source')} /></a></th>{/if}
-						{#if show.has('created_at')}<th><a class="sort" href={sortUrl('created_at')} data-sveltekit-noscroll>Added<SortCaret dir={arrow('created_at')} /></a></th>{/if}
-						{#if show.has('tier')}<th><a class="sort" href={sortUrl('tier')} data-sveltekit-noscroll>Tier<SortCaret dir={arrow('tier')} /></a></th>{/if}
+						<th><a class="sort" href={sortUrl('email')} data-sveltekit-reset="false">Email<SortCaret dir={arrow('email')} /></a></th>
+						{#if show.has('name')}<th><a class="sort" href={sortUrl('name')} data-sveltekit-reset="false">Name<SortCaret dir={arrow('name')} /></a></th>{/if}
+						{#if show.has('company')}<th><a class="sort" href={sortUrl('company')} data-sveltekit-reset="false">Company<SortCaret dir={arrow('company')} /></a></th>{/if}
+						{#if show.has('subscribed')}<th><a class="sort" href={sortUrl('subscribed')} data-sveltekit-reset="false">Status<SortCaret dir={arrow('subscribed')} /></a></th>{/if}
+						{#if show.has('source')}<th><a class="sort" href={sortUrl('source')} data-sveltekit-reset="false">Source<SortCaret dir={arrow('source')} /></a></th>{/if}
+						{#if show.has('created_at')}<th><a class="sort" href={sortUrl('created_at')} data-sveltekit-reset="false">Added<SortCaret dir={arrow('created_at')} /></a></th>{/if}
+						{#if show.has('tier')}<th><a class="sort" href={sortUrl('tier')} data-sveltekit-reset="false">Tier<SortCaret dir={arrow('tier')} /></a></th>{/if}
 						{#if show.has('stage')}<th>Stage</th>{/if}
-						{#if show.has('score') && scoreCol}<th><a class="sort" href={sortUrl(`score:${scoreCol.id}`)} data-sveltekit-noscroll title="Score: {scoreCol.name}">{scoreCol.name}<SortCaret dir={arrow(`score:${scoreCol.id}`)} /></a></th>{/if}
+						{#if show.has('score') && scoreCol}<th><a class="sort" href={sortUrl(`score:${scoreCol.id}`)} data-sveltekit-reset="false" title="Score: {scoreCol.name}">{scoreCol.name}<SortCaret dir={arrow(`score:${scoreCol.id}`)} /></a></th>{/if}
 						{#if archivedView === 'archived'}<th>Archived</th>{/if}
 					</tr>
 				</thead>
@@ -912,13 +907,13 @@
 		{#if data.pageCount > 1 || data.matched > 25}
 			<nav class="pager">
 				{#if data.page > 1}
-					<a class="pg" href={urlWith({ page: data.page - 1 })} data-sveltekit-noscroll>← Prev</a>
+					<a class="pg" href={urlWith({ page: data.page - 1 })} data-sveltekit-reset="false">← Prev</a>
 				{:else}
 					<span class="pg disabled">← Prev</span>
 				{/if}
 				<span class="muted pageinfo">Showing {from}–{to} of {data.matched}</span>
 				{#if data.page < data.pageCount}
-					<a class="pg" href={urlWith({ page: data.page + 1 })} data-sveltekit-noscroll>Next →</a>
+					<a class="pg" href={urlWith({ page: data.page + 1 })} data-sveltekit-reset="false">Next →</a>
 				{:else}
 					<span class="pg disabled">Next →</span>
 				{/if}
@@ -928,7 +923,7 @@
 						{#if opt === data.per}
 							<span class="per-opt active">{opt}</span>
 						{:else}
-							<a class="per-opt" href={urlWith({ per: opt, page: 1 })} data-sveltekit-noscroll>{opt}</a>
+							<a class="per-opt" href={urlWith({ per: opt, page: 1 })} data-sveltekit-reset="false">{opt}</a>
 						{/if}
 					{/each}
 				</span>

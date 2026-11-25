@@ -19,5 +19,6 @@ export const GET: RequestHandler = async ({ platform, url, cookies }) => {
 	});
 
 	const redirectUri = `${url.origin}/auth/github/callback`;
-	throw redirect(302, authorizeUrl(env!.GITHUB_CLIENT_ID, redirectUri, state));
+	// #741: SvelteKit 3 refuses an external redirect unless it is allowed; only GitHub's sign-in host.
+	throw redirect(302, authorizeUrl(env!.GITHUB_CLIENT_ID, redirectUri, state), { external: ['https://github.com'] });
 };

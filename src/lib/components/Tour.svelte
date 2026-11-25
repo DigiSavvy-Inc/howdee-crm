@@ -6,7 +6,7 @@
 	// `tour` state in `$lib/tour.svelte.ts`.
 	import { onMount, tick } from 'svelte';
 	import { fade, fly } from 'svelte/transition';
-	import { browser } from '$app/environment';
+	import { browser } from '$app/env';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { tour, closeTour, startTour } from '$lib/tour.svelte';
@@ -136,7 +136,7 @@
 		} catch {
 			// localStorage unavailable (private mode, etc.) — fall back to auto-opening.
 		}
-		if (!tourShouldAutoStart({ tourSeen, seenLocal, url })) return;
+		if (!tourShouldAutoStart({ tourSeen, seenLocal, url: new URL(url.href) })) return;
 		const timer = setTimeout(() => {
 			autoStarted = true;
 			if (!tour.open) startTour(); // already opened from "Take the tour": leave it where it is

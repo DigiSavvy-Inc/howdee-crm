@@ -29,7 +29,7 @@
 	const view = $derived(data.view ?? (narrow.current ? 'list' : 'kanban'));
 
 	function urlWith(changes: Record<string, string | null>): string {
-		const p = new URLSearchParams(page.url.searchParams);
+		const p = new URLSearchParams(page.url.searchParams.toString());
 		for (const [k, v] of Object.entries(changes)) {
 			if (v) p.set(k, v);
 			else p.delete(k);
@@ -45,12 +45,12 @@
 	function onSearchInput() {
 		clearTimeout(searchTimer);
 		searchTimer = setTimeout(
-			() => goto(urlWith({ q: q.trim() || null }), { replaceState: true, keepFocus: true, noScroll: true }),
+			() => goto(urlWith({ q: q.trim() || null }), { replace: true, reset: false }),
 			250
 		);
 	}
 	function onOwnerChange(e: Event) {
-		goto(urlWith({ owner: (e.currentTarget as HTMLSelectElement).value || null }), { noScroll: true });
+		goto(urlWith({ owner: (e.currentTarget as HTMLSelectElement).value || null }), { reset: false });
 	}
 
 	let error = $state<string | null>(null);
@@ -325,8 +325,8 @@
 	<h1>Pipeline</h1>
 	<span class="muted count">{allCards.length} · {formatValue(totalValue)}</span>
 	<div class="view-toggle" role="group" aria-label="View">
-		<a href={urlWith({ view: 'kanban' })} class:active={view === 'kanban'} aria-current={view === 'kanban' ? 'true' : undefined} data-sveltekit-noscroll><Icon name="kanban" size={16} />Board</a>
-		<a href={urlWith({ view: 'list' })} class:active={view === 'list'} aria-current={view === 'list' ? 'true' : undefined} data-sveltekit-noscroll><Icon name="list" size={16} />List</a>
+		<a href={urlWith({ view: 'kanban' })} class:active={view === 'kanban'} aria-current={view === 'kanban' ? 'true' : undefined} data-sveltekit-reset="false"><Icon name="kanban" size={16} />Board</a>
+		<a href={urlWith({ view: 'list' })} class:active={view === 'list'} aria-current={view === 'list' ? 'true' : undefined} data-sveltekit-reset="false"><Icon name="list" size={16} />List</a>
 	</div>
 	{#if data.isAdmin}<a class="gear" href="/pipeline/stages" title="Edit stages" aria-label="Edit stages"><Icon name="settings" size={20} /></a>{/if}
 	<button type="button" class="add-btn" onclick={openAdd}>+ Add to pipeline</button>

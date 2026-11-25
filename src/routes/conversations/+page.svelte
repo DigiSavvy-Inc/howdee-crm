@@ -8,7 +8,7 @@
 	// shows via CSS :has() whenever a box is checked.
 	import { untrack } from 'svelte';
 	import { enhance } from '$app/forms';
-	import type { SubmitFunction } from '@sveltejs/kit';
+	import type { SubmitFunction } from '$app/forms';
 	import Modal from '$lib/components/Modal.svelte';
 	import BulkBar from '$lib/components/BulkBar.svelte';
 	import Avatar from '$lib/components/Avatar.svelte';
@@ -124,7 +124,7 @@
 			class="tab"
 			href={tabHref(t.key)}
 			aria-current={data.filter === t.key ? 'page' : undefined}
-			data-sveltekit-noscroll
+			data-sveltekit-reset="false"
 		>
 			{t.label} <span class="counter">{data.counts[t.key]}</span>
 		</a>
@@ -245,12 +245,12 @@
 		<span class="muted pageinfo">Showing {from}–{to} of {data.total}</span>
 		<span class="pager-btns">
 			{#if data.page > 1}
-				<a class="pg" rel="prev" href={listHref({ ...ctx, page: data.page - 1 })} data-sveltekit-noscroll>Previous</a>
+				<a class="pg" rel="prev" href={listHref({ ...ctx, page: data.page - 1 })} data-sveltekit-reset="false">Previous</a>
 			{:else}
 				<span class="pg disabled" aria-disabled="true">Previous</span>
 			{/if}
 			{#if data.page < data.pageCount}
-				<a class="pg" rel="next" href={listHref({ ...ctx, page: data.page + 1 })} data-sveltekit-noscroll>Next</a>
+				<a class="pg" rel="next" href={listHref({ ...ctx, page: data.page + 1 })} data-sveltekit-reset="false">Next</a>
 			{:else}
 				<span class="pg disabled" aria-disabled="true">Next</span>
 			{/if}

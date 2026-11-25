@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import type { ActionResult, SubmitFunction } from '@sveltejs/kit';
+	import type { ActionResult, SubmitFunction } from '$app/forms';
 	import Modal from '$lib/components/Modal.svelte';
 	import BulkBar from '$lib/components/BulkBar.svelte';
 	import { assistantSelection } from '$lib/assistant.svelte';

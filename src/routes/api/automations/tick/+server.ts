@@ -41,7 +41,7 @@ import { CLOCK_KEY, SENDS_SKIPPED_KEY, SKIP_KEY, TICK_SKIPPED_NO_PUBLIC_URL, TIC
  * `?key=<key>` (mirrors the webhook's key gate). JSON response, so SvelteKit's CSRF
  * origin check doesn't apply. Route is in PUBLIC_PREFIXES (machine-called, not session-authed).
  *
- * #729: the app's own Cron Trigger (the wrapped `_worker.js`, scripts/wrap-worker.mjs) calls this
+ * #729: the app's own Cron Trigger (the wrapped Worker entry, scripts/wrap-worker.mjs) calls this
  * route in-process with a Symbol marker on the env (`isInternalTick`), which no HTTP request can
  * carry; that call skips the key. Every other request goes through the CRON_KEY check exactly as
  * before. An internal tick with no public address (no Settings → Domain value, no PUBLIC_BASE_URL)

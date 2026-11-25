@@ -3,6 +3,7 @@ import { fail, type Actions } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { getDB } from '$lib/server/db';
 import { publicBaseUrlFor } from '$lib/server/public-url';
+import { lumaSecretInfo, storeLumaSecret } from '$lib/server/luma-secret';
 import { getSettings, setSettings, parseEmailList, fromAllowed, isValidTimezone, timezoneOptions, DEFAULT_TIMEZONE } from '$lib/server/settings';
 import {
 	engagementStatus,
@@ -37,10 +38,14 @@ export const load: PageServerLoad = async (event) => {
 	// addresses, approved senders or engagement config in their page data.
 	if (event.locals.user?.role !== 'admin') return { isAdmin: false as const, me: event.locals.user };
 	const db = getDB(event);
-	const settings = await getSettings(db);
+	const stored = await getSettings(db);
+	// #750: the Luma signing secret never reaches page data; the page only learns where it comes from.
+	const settings = { ...stored, luma_webhook_secret: null };
+	const lumaSecret = await lumaSecretInfo(db, event.platform?.env);
 	return {
 		isAdmin: true as const,
 		settings,
+		lumaSecret,
 		// #661: String() keeps this `string` when the generated Env types the var as the literal "".
 		envForwardTo: String(event.platform?.env?.INBOUND_FORWARD_TO ?? ''),
 		// #605: reply capture needs both the inbound address (var) and INBOUND_KEY (secret).
@@ -50,7 +55,7 @@ export const load: PageServerLoad = async (event) => {
 		envFrom: event.platform?.env?.POSTMARK_FROM ?? '',
 		defaultListName: defaultListName(event.platform?.env),
 		aiKeyConfigured: await subjectKeySet(db, event.platform?.env),
-		lumaSecretFromEnv:!settings.luma_webhook_secret && !!event.platform?.env?.LUMA_WEBHOOK_SECRET,
+		lumaSecretFromEnv: lumaSecret.from === 'env',
 		lumaWebhookUrl: `${await publicBaseUrlFor(event)}/api/luma`,
 		engagement: await engagementStatus(db),
 		// Tunable score weights / half-life / tier thresholds (#116).
@@ -135,10 +140,13 @@ export const actions: Actions = {
 		};
 		// #246: the toggle is disabled (so not posted) without the key — leave it alone then.
 		if (await subjectKeySet(db, event.platform?.env)) values.ai_resend_subject = data.get('ai_resend_subject') ? 'on' : 'off';
-		if (lumaSecretRaw.trim() || lumaSecretRaw === ' ') values.luma_webhook_secret = lumaSecretRaw.trim();
 		if (timezoneRaw) values.timezone = timezoneRaw;
 
 		await setSettings(db, values);
+		// #750: only a submitted Luma secret is written (sealed with MAIL_TOKEN_KEY when that key is
+		// valid; a single space clears it). A blank field leaves the stored value exactly as it is,
+		// so a plain value saved earlier keeps working unchanged.
+		if (lumaSecretRaw.trim() || lumaSecretRaw === ' ') await storeLumaSecret(db, event.platform?.env, lumaSecretRaw);
 		return { saved: true };
 	},
 

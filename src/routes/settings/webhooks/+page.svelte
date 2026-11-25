@@ -36,6 +36,13 @@
 	}
 
 	const active = $derived(data.keys.filter((k) => !k.revoked_at));
+	// #750: active keys whose full value is still stored (the load only sends it for those).
+	const plaintextCount = $derived(active.filter((k) => !!k.token).length);
+
+	function confirmHash({ cancel }: { cancel: () => void }) {
+		const ok = confirm('Hash every key still stored in full?\n\nThe keys keep working, but their full URLs will no longer be shown on this page.');
+		if (!ok) cancel();
+	}
 	const revoked = $derived(data.keys.filter((k) => k.revoked_at));
 
 	function statusClass(s: string): string {
@@ -88,6 +95,25 @@
 </p>
 
 {#if form?.error}<p class="err">{form.error}</p>{/if}
+
+{#if form?.hashedKeys !== undefined}
+	<p class="notice ok" role="status">Hashed {form.hashedKeys} key{form.hashedKeys === 1 ? '' : 's'}. They keep working.</p>
+{/if}
+
+{#if plaintextCount > 0}
+	<!-- #750: keys made before hashing and never used since are still stored in full. -->
+	<div class="notice warn" role="status">
+		<p>
+			{plaintextCount} key{plaintextCount === 1 ? ' is' : 's are'} still stored in full (made before keys were
+			hashed, and not used since). Hash {plaintextCount === 1 ? 'it' : 'them'} now: the keys keep working, but
+			their full URLs are no longer shown here, so copy any you still need first.
+		</p>
+		<form method="POST" action="?/hashPlaintext" use:enhance={confirmHash} class="inline">
+			<input type="hidden" name="confirm" value="1" />
+			<button type="submit" class="secondary sm">Hash stored keys…</button>
+		</form>
+	</div>
+{/if}
 
 {#if form?.createdToken}
 	{@const created = form.createdToken}

@@ -110,6 +110,39 @@ export async function signInWithPassword(
 	return { ok: true, userId: cred.id };
 }
 
+/**
+ * #750: the `login_attempts` key for current-password checks on /account (changing your password
+ * or email). One fixed key per user, never starting with `user:`, so typing on /login can't
+ * read or add to it.
+ */
+export function accountPasswordKey(userId: number): string {
+	return `account:${userId}`;
+}
+
+export type CurrentPasswordCheck = { ok: true } | { ok: false; status: 400 } | { ok: false; status: 429; minutes: number };
+
+/**
+ * #750: check a signed-in user's current password with the sign-in lockout: 5 wrong answers for
+ * this user (since their last right one) or 20 failures from one IP within 15 minutes → 429,
+ * refused before the KDF and not logged. A right answer resets this user's count.
+ */
+export async function checkCurrentPassword(
+	db: D1Database,
+	input: { userId: number; password: string; storedHash: string; ip: string }
+): Promise<CurrentPasswordCheck> {
+	const key = accountPasswordKey(input.userId);
+	const minutes = await lockoutMinutes(db, key, input.ip);
+	if (minutes > 0) return { ok: false, status: 429, minutes };
+	const match = await verifyPassword(input.password, input.storedHash);
+	await recordAttempt(db, key, input.ip, match);
+	return match ? { ok: true } : { ok: false, status: 400 };
+}
+
+/** The message for a 429 from `checkCurrentPassword`. */
+export function currentPasswordLockedMessage(minutes: number): string {
+	return `Too many wrong passwords. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`;
+}
+
 /** Heartbeat housekeeping: drop attempts older than 30 days. */
 export async function pruneLoginAttempts(db: D1Database): Promise<{ deleted: number }> {
 	const res = await db

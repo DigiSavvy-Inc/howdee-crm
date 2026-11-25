@@ -5,7 +5,7 @@
 	// The video sits below the controls, or beside them on wide screens — never above, and it
 	// comes after them in the DOM (so in the focus order too).
 	import { enhance } from '$app/forms';
-	import type { SubmitFunction } from '@sveltejs/kit';
+	import type { SubmitFunction } from '$app/forms';
 	import { renderAssistantMarkdown } from '$lib/assistant-markdown';
 	import { autoTextColor } from '$lib/brand';
 	import { UNSUBSCRIBE_REASONS, videoForState, type UnsubPageConfig, type UnsubState } from '$lib/unsubscribe-page';
@@ -26,6 +26,7 @@
 		footerTopic = null,
 		listOrigin = null,
 		subscribed = true,
+		canResubscribe = true,
 		error = null,
 		prefsKept = null,
 		stillUnsubscribed = false,
@@ -44,6 +45,8 @@
 		listOrigin?: string | null;
 		/** The contact is currently subscribed (false → "Resubscribe me" when allowed). */
 		subscribed?: boolean;
+		/** #750: this link may resubscribe (false for an old or expired link: no Resubscribe offered). */
+		canResubscribe?: boolean;
 		error?: string | null;
 		prefsKept?: number | null;
 		stillUnsubscribed?: boolean;
@@ -91,7 +94,11 @@
 					Your email preferences for {email} are updated{#if prefsKept === 0} — you're opted out of all topics{/if}. Thanks!
 				</p>
 				{#if stillUnsubscribed}
-					<p class="muted">You're still unsubscribed from all emails, so nothing will be sent until you resubscribe.</p>
+					{#if canResubscribe}
+						<p class="muted">You're still unsubscribed from all emails, so nothing will be sent until you resubscribe.</p>
+					{:else}
+						<p class="muted">You're still unsubscribed from all emails, so nothing will be sent. To resubscribe, use the link in a newer email from us.</p>
+					{/if}
 				{/if}
 			{:else if state === 'resubscribed'}
 				<h1>You're subscribed again</h1>
@@ -100,7 +107,7 @@
 				<h1>{cfg.afterHeading}</h1>
 				<p class="muted">{email} will no longer receive these emails. Thanks for the feedback.</p>
 				{#if cfg.afterMessage}<div class="md">{@html md(cfg.afterMessage)}</div>{/if}
-				{#if cfg.resubscribe}
+				{#if cfg.resubscribe && canResubscribe}
 					<form method="POST" action="?/resubscribe" use:submit class="resub">
 						<input type="hidden" name="token" value={token} />
 						<p class="muted">Changed your mind?</p>
@@ -145,7 +152,7 @@
 						<p class="prefs-lead">
 							Or stay on <strong>{topics[0].label}</strong>{#if topics[0].blurb}<span class="muted t-desc"> — {topics[0].blurb}</span>{/if}
 						</p>
-						{#if cfg.resubscribe && !subscribed}
+						{#if cfg.resubscribe && canResubscribe && !subscribed}
 							<label class="topic"><input type="checkbox" name="resubscribe" value="1" /> <span>Resubscribe me</span></label>
 						{/if}
 						<button type="submit" class="secondary">Keep receiving {topics[0].label}</button>
@@ -160,7 +167,7 @@
 								<span><strong>{t.label}</strong>{#if t.blurb}<span class="muted t-desc"> — {t.blurb}</span>{/if}</span>
 							</label>
 						{/each}
-						{#if cfg.resubscribe && !subscribed}
+						{#if cfg.resubscribe && canResubscribe && !subscribed}
 							<label class="topic"><input type="checkbox" name="resubscribe" value="1" /> <span>Resubscribe me</span></label>
 						{/if}
 						<p class="muted prefs-note">Untick everything to unsubscribe from all emails.</p>

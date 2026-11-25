@@ -8,11 +8,13 @@ import { lastSuppressionSync, runSuppressionSync } from '$lib/server/suppression
 import { authBounces, checkSummary, domainAuthAlert, lastDomainAuth, runDomainAuthCheck, statusChanges, switchToCustomUnsubscribe, withSendingCreds, type DomainAuthEnv } from '$lib/server/domain-auth';
 import { backfillState, hygieneCounts, runHygieneBackfill, startHygieneBackfill } from '$lib/server/hygiene';
 import { activeAlerts, dismissAlert, getAlertConfig, heldCampaigns, releaseHeldCampaign } from '$lib/server/deliverability-alerts';
+import { isLocalPath } from '$lib/local-path';
 
 // Where the alert banner's forms return to (#305): a same-site path, else /deliverability.
+// #741: no backslash either (`/\host` is another site; kit 3's redirect() would 500 on it).
 function backTo(data: FormData): string {
 	const back = String(data.get('back') ?? '');
-	return back.startsWith('/') && !back.startsWith('//') ? back : '/deliverability';
+	return isLocalPath(back) ? back : '/deliverability';
 }
 
 const COLD_OPTIONS = [3, 6, 12]; // months

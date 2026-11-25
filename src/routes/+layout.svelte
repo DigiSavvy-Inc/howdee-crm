@@ -5,7 +5,7 @@
 	import '../app.css';
 	import logomark from '$lib/assets/logomark.svg';
 	import { page } from '$app/state';
-	import { browser } from '$app/environment';
+	import { browser } from '$app/env';
 	import HelpPanel from '$lib/components/HelpPanel.svelte';
 	import AssistantPanel from '$lib/components/AssistantPanel.svelte';
 	import AssistantFab from '$lib/components/AssistantFab.svelte';

@@ -140,7 +140,7 @@
 		for (const [k, v] of Object.entries(keep)) if (v && !p.has(k)) p.set(k, v);
 		open = false;
 		onApply?.();
-		goto(`?${p}`, { noScroll: true, keepFocus: true });
+		goto(`?${p}`, { reset: false });
 	}
 </script>
 

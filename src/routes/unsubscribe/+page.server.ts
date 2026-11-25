@@ -1,7 +1,7 @@
 import { fail, type Actions } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { getDB, env } from '$lib/server/db';
-import { verifyUnsub } from '$lib/server/token';
+import { verifyUnsub, verifyUnsubToken, resubscribeAllowed, RESUB_LINK_EXPIRED } from '$lib/server/token';
 import { unsubscribeAll } from '$lib/server/unsubscribe';
 import { getMailProvider } from '$lib/server/mail';
 import { getUnsubPage, selfResubscribe } from '$lib/server/unsubscribe-page';
@@ -39,8 +39,11 @@ export const load: PageServerLoad = async (event) => {
 	// #374: video embeds only from the three player hosts, uploaded media only from us.
 	event.setHeaders({ 'Content-Security-Policy': unsubscribeCsp() });
 	const page = await getUnsubPage(event.platform?.env?.DB);
-	const payload = await verifyUnsub(secret, token);
-	if (!payload) return { invalid: true as const, page };
+	const verified = await verifyUnsubToken(secret, token);
+	if (!verified) return { invalid: true as const, page };
+	const payload = verified.payload;
+	// #750: the Resubscribe button and "Resubscribe me" show only for a link that may resubscribe.
+	const canResubscribe = resubscribeAllowed(verified);
 
 	// #701 / #518: in CRM tracking mode the unsubscribe link isn't rewritten, so a page view of a
 	// CRM-tracked send is stored as its `unsubscribe_click` (the scanner-burst rule needs it).
@@ -87,7 +90,7 @@ export const load: PageServerLoad = async (event) => {
 		/* topics are optional — never block the unsubscribe page */
 	}
 
-	return { invalid: false as const, page, email: payload.e, token, footerTopic, listOrigin, topics, subscribed };
+	return { invalid: false as const, page, email: payload.e, token, footerTopic, listOrigin, topics, subscribed, canResubscribe };
 };
 
 export const actions: Actions = {
@@ -100,8 +103,9 @@ export const actions: Actions = {
 		const db = getDB(event);
 		const secret = env(event, 'SESSION_SECRET');
 		const data = await event.request.formData();
-		const payload = await verifyUnsub(secret, String(data.get('token') ?? ''));
-		if (!payload) return fail(400, { error: 'This link is invalid or expired.' });
+		const verified = await verifyUnsubToken(secret, String(data.get('token') ?? ''));
+		if (!verified) return fail(400, { error: 'This link is invalid or expired.' });
+		const payload = verified.payload;
 		const email = payload.e.toLowerCase();
 		const contact = await db
 			.prepare('SELECT id, subscribed FROM contacts WHERE email = ?')
@@ -123,9 +127,13 @@ export const actions: Actions = {
 			return { success: true as const, email };
 		}
 
-		const kept = await saveTopicChoicesAndFire(db, contact.id, ids, keep);
 		let stillUnsubscribed = contact.subscribed !== 1;
-		if (stillUnsubscribed && String(data.get('resubscribe') ?? '') === '1') {
+		const wantsResubscribe = stillUnsubscribed && String(data.get('resubscribe') ?? '') === '1';
+		// #750: resubscribing needs a recent link. Checked before anything is saved, so a refused
+		// request changes nothing; saving topics without "Resubscribe me" works with any link.
+		if (wantsResubscribe && !resubscribeAllowed(verified)) return fail(400, { error: RESUB_LINK_EXPIRED });
+		const kept = await saveTopicChoicesAndFire(db, contact.id, ids, keep);
+		if (wantsResubscribe) {
 			const res = await selfResubscribe(
 				db,
 				await getMailProvider(db, pm),
@@ -166,9 +174,12 @@ export const actions: Actions = {
 	resubscribe: async (event) => {
 		const db = getDB(event);
 		const data = await event.request.formData();
-		const payload = await verifyUnsub(env(event, 'SESSION_SECRET'), String(data.get('token') ?? ''));
-		if (!payload) return fail(400, { resubError: 'This link is invalid or expired.', email: '' });
+		const verified = await verifyUnsubToken(env(event, 'SESSION_SECRET'), String(data.get('token') ?? ''));
+		if (!verified) return fail(400, { resubError: 'This link is invalid or expired.', email: '' });
+		const payload = verified.payload;
 		const email = payload.e.toLowerCase();
+		// #750: only a link issued in the last RESUB_TOKEN_MAX_AGE_DAYS may resubscribe.
+		if (!resubscribeAllowed(verified)) return fail(400, { resubError: RESUB_LINK_EXPIRED, email });
 		const pm = event.platform?.env;
 		const res = await selfResubscribe(
 			db,

@@ -245,11 +245,11 @@
 			<table>
 				<thead>
 					<tr>
-						<th><a class="sort" href={sortUrl('email')} data-sveltekit-noscroll>Email<SortCaret dir={arrow('email')} /></a></th>
-						<th><a class="sort" href={sortUrl('name')} data-sveltekit-noscroll>Name<SortCaret dir={arrow('name')} /></a></th>
-						<th><a class="sort" href={sortUrl('subscribed')} data-sveltekit-noscroll>Status<SortCaret dir={arrow('subscribed')} /></a></th>
-						<th><a class="sort" href={sortUrl('source')} data-sveltekit-noscroll>Source<SortCaret dir={arrow('source')} /></a></th>
-						<th><a class="sort" href={sortUrl('created_at')} data-sveltekit-noscroll>Added<SortCaret dir={arrow('created_at')} /></a></th>
+						<th><a class="sort" href={sortUrl('email')} data-sveltekit-reset="false">Email<SortCaret dir={arrow('email')} /></a></th>
+						<th><a class="sort" href={sortUrl('name')} data-sveltekit-reset="false">Name<SortCaret dir={arrow('name')} /></a></th>
+						<th><a class="sort" href={sortUrl('subscribed')} data-sveltekit-reset="false">Status<SortCaret dir={arrow('subscribed')} /></a></th>
+						<th><a class="sort" href={sortUrl('source')} data-sveltekit-reset="false">Source<SortCaret dir={arrow('source')} /></a></th>
+						<th><a class="sort" href={sortUrl('created_at')} data-sveltekit-reset="false">Added<SortCaret dir={arrow('created_at')} /></a></th>
 					</tr>
 				</thead>
 				<tbody>
@@ -275,16 +275,16 @@
 		</div>
 		{#if data.pageCount > 1 || co.contact_count > 25}
 			<nav class="pager">
-				{#if data.page > 1}<a class="pg" href={urlWith({ page: data.page - 1 })} data-sveltekit-noscroll>← Prev</a>
+				{#if data.page > 1}<a class="pg" href={urlWith({ page: data.page - 1 })} data-sveltekit-reset="false">← Prev</a>
 				{:else}<span class="pg disabled">← Prev</span>{/if}
 				<span class="muted pageinfo">Showing {from}–{to} of {co.contact_count}</span>
-				{#if data.page < data.pageCount}<a class="pg" href={urlWith({ page: data.page + 1 })} data-sveltekit-noscroll>Next →</a>
+				{#if data.page < data.pageCount}<a class="pg" href={urlWith({ page: data.page + 1 })} data-sveltekit-reset="false">Next →</a>
 				{:else}<span class="pg disabled">Next →</span>{/if}
 				<span class="per">
 					<span class="muted">Per page:</span>
 					{#each data.perOptions as opt (opt)}
 						{#if opt === data.per}<span class="per-opt active">{opt}</span>
-						{:else}<a class="per-opt" href={urlWith({ per: opt, page: 1 })} data-sveltekit-noscroll>{opt}</a>{/if}
+						{:else}<a class="per-opt" href={urlWith({ per: opt, page: 1 })} data-sveltekit-reset="false">{opt}</a>{/if}
 					{/each}
 				</span>
 			</nav>

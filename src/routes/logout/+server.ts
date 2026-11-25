@@ -4,7 +4,7 @@ import { endUserSessions } from '$lib/server/users';
 
 /**
  * Is this sign-out from the app's own pages? The app origin is `url.origin`, the same value the
- * hook's form-post origin check compares against (the host the request reached, so the custom
+ * hook's origin check compares against (the host the request reached, so the custom
  * domain when that is how the app was opened). A matching `Origin` header passes. With no
  * `Origin` header, `Sec-Fetch-Site: same-origin` (a same-origin post from a browser that leaves
  * Origin out) or `none` (typed or bookmarked by the user) passes. Anything else does not,
@@ -20,9 +20,10 @@ function isSameOriginRequest(request: Request, url: URL): boolean {
 /**
  * Sign out. #746: from the app's own pages this signs the user out on every device — it moves
  * the user's "sessions valid after" stamp forward, so every session issued before now is
- * refused, not only the cookie in this browser. A sign-out posted from another site (the hook
- * only checks the origin of form posts, so a body-less POST from a sibling host gets here with
- * the cookie) only clears this browser's cookie and leaves the other devices signed in.
+ * refused, not only the cookie in this browser. Since #749 the hook refuses every cross-site
+ * write that carries a session cookie, whatever its content type; this route keeps its own
+ * check as a second line: a sign-out that isn't same-origin only clears this browser's cookie
+ * and leaves the other devices signed in.
  * A break-glass session belongs to the first active admin, so signing out of it ends that
  * admin's other sessions too; break-glass and normal sign-in still work straight after (a new
  * session is issued after the stamp).

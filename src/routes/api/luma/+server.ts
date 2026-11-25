@@ -6,6 +6,7 @@ import { addTag, autoEnroll } from '$lib/server/automations';
 import { safeMetaJson } from '$lib/server/meta';
 import { guardReportUrl } from '$lib/server/report-url';
 import { getSettings } from '$lib/server/settings';
+import { lumaSecretFor } from '$lib/server/luma-secret';
 import { verifyLumaSignature, extractGuest, STATUS_TAGS } from '$lib/server/luma';
 import { NO_DEFAULT_LIST_ERROR, defaultListName } from '$lib/server/default-list';
 
@@ -32,8 +33,8 @@ export const POST: RequestHandler = async (event) => {
 	const webhookId = event.request.headers.get('webhook-id');
 
 	const settings = await getSettings(db);
-	const secret =
-		settings.luma_webhook_secret || event.platform?.env?.LUMA_WEBHOOK_SECRET || '';
+	// #750: the stored secret may be sealed with MAIL_TOKEN_KEY; env LUMA_WEBHOOK_SECRET is the fallback.
+	const secret = await lumaSecretFor(db, event.platform?.env);
 	// #605: no signing secret = the integration isn't set up. Answer quietly, store nothing.
 	if (!secret) return json({ error: 'Luma integration is not set up' }, { status: 404 });
 
@@ -70,10 +71,8 @@ export const POST: RequestHandler = async (event) => {
 		rawBody,
 		Math.floor(Date.now() / 1000)
 	);
-	if (!verdict.ok) {
-		await logStandalone('rejected', verdict.reason ?? 'signature verification failed');
-		return json({ error: 'invalid signature', reason: verdict.reason }, { status: 401 });
-	}
+	// #750: a request that fails the check is not stored, and the answer doesn't say why.
+	if (!verdict.ok) return json({ error: 'invalid signature' }, { status: 401 });
 
 	// 2. Parse the (now-trusted) payload.
 	let payload: Record<string, unknown>;

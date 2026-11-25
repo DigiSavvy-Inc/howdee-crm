@@ -3,7 +3,7 @@ import type { PageServerLoad } from './$types';
 import { getDB } from '$lib/server/db';
 import { publicBaseUrlFor } from '$lib/server/public-url';
 import { snapshot } from '$lib/server/snapshot';
-import { generateWebhookToken, newKeyColumns } from '$lib/server/webhook-keys';
+import { generateWebhookToken, hashPlaintextKeys, newKeyColumns } from '$lib/server/webhook-keys';
 
 type KeyRow = {
 	id: number;
@@ -73,6 +73,19 @@ export const load: PageServerLoad = async (event) => {
 };
 
 export const actions: Actions = {
+	// #750: hash every key still stored in plaintext (made before #742 and never used since). The
+	// keys keep working; this page just stops showing them in full. Needs `confirm=1`.
+	hashPlaintext: async (event) => {
+		if (!isAdmin(event)) return fail(403, { error: 'Admins only.' });
+		const data = await event.request.formData();
+		if (data.get('confirm') !== '1') {
+			return fail(400, { error: 'Confirm first: after this the full keys are no longer shown here.' });
+		}
+		const res = await hashPlaintextKeys(getDB(event));
+		if (res.pending) return fail(503, { error: 'This needs the latest database migration first.' });
+		return { hashedKeys: res.hashed };
+	},
+
 	create: async (event) => {
 		if (!isAdmin(event)) return fail(403, { error: 'Admins only.' });
 		const db = getDB(event);

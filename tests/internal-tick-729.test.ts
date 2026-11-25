@@ -1,16 +1,17 @@
-// #729: the app Worker runs its own clock. `npm run build` wraps the adapter's _worker.js
-// (scripts/wrap-worker-lib.mjs): the new _worker.js = withClock(./_app.js): fetch unchanged,
+// #729: the app Worker runs its own clock. `npm run build` wraps the adapter's Worker entry
+// (scripts/wrap-worker-lib.mjs): the new index.js = withClock(./_app.js): fetch unchanged,
 // scheduled runs one tick through the app's own fetch handler with a Symbol marker on the env.
 // The CRON_KEY endpoint keeps working as before; outside requests can't use the marker.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { env as testEnv } from 'cloudflare:test';
+import { env as workersEnv } from 'cloudflare:workers';
 import { isHttpError } from '@sveltejs/kit';
 import pkg from '../package.json';
 import { POST } from '../src/routes/api/automations/tick/+server';
 import { CLOCK_KEY, INTERNAL_TICK, SKIP_KEY, TICK_PATH, isInternalOrigin, isInternalTick, withClock } from '../src/lib/server/internal-tick';
 import { localRequiredChecks } from '../src/lib/server/setup-checks';
 import { clearDomainCache } from '../src/lib/server/public-url';
-import { APP_FILE, WRAPPER_MARKER, wrapWorker, wrapperSource, withAppIgnored } from '../scripts/wrap-worker-lib.mjs';
+import { APP_FILE, TICK_FILE, WRAPPER_MARKER, wrapWorker, wrapperSource } from '../scripts/wrap-worker-lib.mjs';
 
 const db = (testEnv as any).DB as D1Database;
 
@@ -83,6 +84,19 @@ describe('#729 withClock', () => {
 		expect(isInternalTick(passedEnv)).toBe(true);
 		expect(passedEnv.DB).toBe('db');
 		expect(isInternalTick(env)).toBe(false); // the runtime's env is not changed
+	});
+
+	it('#741: inside the tick, cloudflare:workers env carries the marker too (withEnv)', async () => {
+		const seen: boolean[] = [];
+		const app = {
+			fetch: async () => {
+				seen.push(isInternalTick(workersEnv));
+				return new Response('{"ok":true}');
+			}
+		};
+		await withClock(app).scheduled({}, { DB: 'db' }, { waitUntil() {} });
+		expect(seen).toEqual([true]);
+		expect(isInternalTick(workersEnv)).toBe(false); // outside the call the env is the plain one
 	});
 
 	it('scheduled never throws and logs a failed tick', async () => {
@@ -254,10 +268,12 @@ describe('#729 setup checks', () => {
 });
 
 describe('#729 wrap-worker (the build step)', () => {
-	const DIR = '/repo/.svelte-kit/cloudflare';
-	const TICK = '../../src/lib/server/internal-tick.ts';
-	const ADAPTER = "import { Server } from './../output/server/index.js';\nexport { worker_default as default };\n";
-	const IGNORE = '\n_worker.js\n_routes.json\n_headers\n_redirects';
+	// #741: adapter-cloudflare 9 writes the Worker to .svelte-kit/cloudflare/worker/ (index.js +
+	// a generated wrangler.json with main "index.js", deployed unbundled).
+	const DIR = '/repo/.svelte-kit/cloudflare/worker';
+	const TICK = "import { withEnv } from 'cloudflare:workers';\nexport function withClock(app) { return app; }\n";
+	const ADAPTER = "import { server } from './server.js';\nexport default { async fetch() {} };\n";
+	const CONFIG = JSON.stringify({ name: 'app', main: 'index.js', no_bundle: true, assets: { binding: 'ASSETS', directory: '../client' } });
 
 	function fakeFs(files: Record<string, string>) {
 		const map = new Map(Object.entries(files));
@@ -284,58 +300,58 @@ describe('#729 wrap-worker (the build step)', () => {
 		};
 	}
 
-	it('moves the adapter worker to _app.js and writes the wrapper', () => {
-		const f = fakeFs({ [`${DIR}/_worker.js`]: ADAPTER, [`${DIR}/.assetsignore`]: IGNORE });
-		expect(wrapWorker(DIR, f.fs, { tickModule: TICK })).toEqual({ wrapped: true, ignoreUpdated: true });
-		expect(f.map.get(`${DIR}/_app.js`)).toBe(ADAPTER);
-		const wrapper = f.map.get(`${DIR}/_worker.js`)!;
-		expect(wrapper).toBe(wrapperSource(TICK));
+	it('moves the adapter worker to _app.js, writes the tick module and the wrapper', () => {
+		const f = fakeFs({ [`${DIR}/index.js`]: ADAPTER, [`${DIR}/wrangler.json`]: CONFIG });
+		expect(wrapWorker(DIR, f.fs, { tickSource: TICK })).toEqual({ wrapped: true, tickUpdated: true });
+		expect(f.map.get(`${DIR}/${APP_FILE}`)).toBe(ADAPTER);
+		expect(f.map.get(`${DIR}/${TICK_FILE}`)).toBe(TICK);
+		const wrapper = f.map.get(`${DIR}/index.js`)!;
+		expect(wrapper).toBe(wrapperSource());
 		expect(wrapper.startsWith(WRAPPER_MARKER)).toBe(true);
 		expect(wrapper).toContain("import app from './_app.js';");
-		expect(wrapper).toContain(`import { withClock } from '${TICK}';`);
+		expect(wrapper).toContain("import { withClock } from './internal-tick.js';");
 		expect(wrapper).toContain('export default withClock(app);');
+		// The generated deploy config is left as the adapter wrote it.
+		expect(f.map.get(`${DIR}/wrangler.json`)).toBe(CONFIG);
 	});
 
-	it('keeps server code out of the static assets (.assetsignore)', () => {
-		const f = fakeFs({ [`${DIR}/_worker.js`]: ADAPTER, [`${DIR}/.assetsignore`]: IGNORE });
-		wrapWorker(DIR, f.fs, { tickModule: TICK });
-		const lines = f.map.get(`${DIR}/.assetsignore`)!.split('\n');
-		expect(lines).toContain('_worker.js');
-		expect(lines).toContain(APP_FILE);
-		expect(lines.filter((l) => l === APP_FILE).length).toBe(1);
-		// No .assetsignore at all: one is written.
-		const g = fakeFs({ [`${DIR}/_worker.js`]: ADAPTER });
-		wrapWorker(DIR, g.fs, { tickModule: TICK });
-		expect(g.map.get(`${DIR}/.assetsignore`)).toBe('_app.js\n');
-		expect(withAppIgnored('a\n_app.js\n')).toBe('a\n_app.js\n');
-		expect(withAppIgnored('a')).toBe('a\n_app.js\n');
+	it('internal-tick.ts imports only cloudflare:workers, so it can be transpiled on its own', async () => {
+		const { default: source } = await import('../src/lib/server/internal-tick.ts?raw');
+		const imports = [...source.matchAll(/^\s*import\b[^;]*?from\s*['"]([^'"]+)['"]/gm)].map((m) => m[1]);
+		expect(imports).toEqual(['cloudflare:workers']);
+		expect(source).not.toMatch(/^\s*(enum|namespace)\b/m);
 	});
 
 	it('is idempotent: a second run changes nothing', () => {
-		const f = fakeFs({ [`${DIR}/_worker.js`]: ADAPTER, [`${DIR}/.assetsignore`]: IGNORE });
-		wrapWorker(DIR, f.fs, { tickModule: TICK });
+		const f = fakeFs({ [`${DIR}/index.js`]: ADAPTER, [`${DIR}/wrangler.json`]: CONFIG });
+		wrapWorker(DIR, f.fs, { tickSource: TICK });
 		const snapshot = new Map(f.map);
 		f.ops.length = 0;
-		expect(wrapWorker(DIR, f.fs, { tickModule: TICK })).toEqual({ wrapped: false, ignoreUpdated: false });
+		expect(wrapWorker(DIR, f.fs, { tickSource: TICK })).toEqual({ wrapped: false, tickUpdated: false });
 		expect(f.ops).toEqual([]);
 		expect(f.map).toEqual(snapshot);
-		expect(f.map.get(`${DIR}/_app.js`)).toBe(ADAPTER); // never wraps the wrapper
+		expect(f.map.get(`${DIR}/${APP_FILE}`)).toBe(ADAPTER); // never wraps the wrapper
 	});
 
 	it('a fresh adapter build over a stale _app.js wraps the new build', () => {
-		const f = fakeFs({ [`${DIR}/_worker.js`]: ADAPTER, [`${DIR}/_app.js`]: 'old build' });
-		expect(wrapWorker(DIR, f.fs, { tickModule: TICK }).wrapped).toBe(true);
-		expect(f.map.get(`${DIR}/_app.js`)).toBe(ADAPTER);
+		const f = fakeFs({ [`${DIR}/index.js`]: ADAPTER, [`${DIR}/${APP_FILE}`]: 'old build', [`${DIR}/${TICK_FILE}`]: 'old tick' });
+		expect(wrapWorker(DIR, f.fs, { tickSource: TICK })).toEqual({ wrapped: true, tickUpdated: true });
+		expect(f.map.get(`${DIR}/${APP_FILE}`)).toBe(ADAPTER);
+		expect(f.map.get(`${DIR}/${TICK_FILE}`)).toBe(TICK);
 	});
 
-	it('fails loudly when the adapter output is missing or half-wrapped', () => {
-		expect(() => wrapWorker(DIR, fakeFs({}).fs, { tickModule: TICK })).toThrow(/_worker\.js not found/);
-		const half = fakeFs({ [`${DIR}/_worker.js`]: wrapperSource(TICK) });
-		expect(() => wrapWorker(DIR, half.fs, { tickModule: TICK })).toThrow(/_app\.js is missing/);
+	it('fails loudly when the adapter output is missing, half-wrapped or laid out differently', () => {
+		expect(() => wrapWorker(DIR, fakeFs({}).fs, { tickSource: TICK })).toThrow(/index\.js not found/);
+		const half = fakeFs({ [`${DIR}/index.js`]: wrapperSource() });
+		expect(() => wrapWorker(DIR, half.fs, { tickSource: TICK })).toThrow(/_app\.js is missing/);
+		const moved = fakeFs({ [`${DIR}/index.js`]: ADAPTER, [`${DIR}/wrangler.json`]: JSON.stringify({ main: 'entry.js' }) });
+		expect(() => wrapWorker(DIR, moved.fs, { tickSource: TICK })).toThrow(/expected "index\.js"/);
+		expect(moved.ops).toEqual([]);
+		expect(() => wrapWorker(DIR, fakeFs({ [`${DIR}/index.js`]: ADAPTER }).fs, { tickSource: ' ' })).toThrow(/empty/);
 	});
 
 	it('runs as part of `npm run build` (deploy runs `npm run build`, so it cannot be skipped)', () => {
 		expect(pkg.scripts.build).toMatch(/&& vite build && node scripts\/wrap-worker\.mjs$/);
-		expect(pkg.scripts.preview).toContain('.svelte-kit/cloudflare/_worker.js');
+		expect(pkg.scripts.preview).toContain('.svelte-kit/cloudflare/worker/wrangler.json');
 	});
 });

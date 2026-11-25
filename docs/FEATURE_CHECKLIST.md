@@ -69,6 +69,7 @@ Decide include / exclude / label for each — don't let it leak by default.
 
 ## 9. Verify (local-first)
 - [ ] `npm run check` → **0 source errors** (ignore everything under `.svelte-kit/`; `rm -rf .svelte-kit/output .svelte-kit/cloudflare*` first).
+- [ ] SvelteKit 3 (#741): config lives in `vite.config.ts` (`sveltekit({...})`), never `svelte.config.js`; `event.platform` is rebuilt from `cloudflare:workers` in `hooks.server.ts` (`ensurePlatform`); `goto` takes `replace` / `reset: false` (not `replaceState` / `noScroll` / `keepFocus`), links take `data-sveltekit-reset="false"`; an external `redirect()` needs `{ external: [...] }`.
 - [ ] Drive the **real flow** on local dev + local D1 (the `POSTMARK_API_TEST` token validates + returns MessageIDs without sending). For time-based features, seed rows with `next_run_at` in the **past** to force-due instead of waiting.
 - [ ] State machine / idempotency? Run an adversarial review before closing.
 - [ ] Test data, comments and help text use invented people and reserved domains (`example.com`/`.org`/`.net`, `.test`, `.example`), never a real person, customer or company address.

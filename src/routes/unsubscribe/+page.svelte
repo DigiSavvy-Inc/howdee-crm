@@ -41,6 +41,7 @@
 	footerTopic={data.invalid ? null : data.footerTopic}
 	listOrigin={data.invalid ? null : data.listOrigin}
 	subscribed={data.invalid ? true : data.subscribed}
+	canResubscribe={data.invalid ? false : data.canResubscribe}
 	{error}
 	prefsKept={form && 'kept' in form ? (form.kept ?? null) : null}
 	stillUnsubscribed={!!(form && 'stillUnsubscribed' in form && form.stillUnsubscribed)}

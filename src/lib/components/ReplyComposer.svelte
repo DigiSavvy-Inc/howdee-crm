@@ -9,7 +9,7 @@
 	import { kbd } from '$lib/platform.svelte';
 	import { invalidateAll } from '$app/navigation';
 	import { page } from '$app/state';
-	import type { SubmitFunction } from '@sveltejs/kit';
+	import type { SubmitFunction } from '$app/forms';
 	import type { Conversation } from '$lib/server/conversations';
 	import { parseMarkdownPreservingMergeTags } from '$lib/merge-tags';
 	import { SseBuffer } from '$lib/sse';

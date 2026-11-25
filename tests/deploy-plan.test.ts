@@ -2,9 +2,16 @@ import { describe, expect, it } from 'vitest';
 import pkg from '../package.json';
 import { wranglerBinFromPackage } from '../scripts/wrangler-bin.mjs';
 import template from '../wrangler.example.jsonc?raw';
+import { WRAPPER_MARKER } from '../scripts/wrap-worker-lib.mjs';
 import {
+	BUILT_CONFIG,
+	BUILT_ENTRY,
+	DEPLOY_REDIRECT,
 	GENERATED_SECRETS,
 	MARKER_FILE,
+	builtWorkerProblem,
+	configLayoutProblem,
+	joinPosix,
 	SETUP_TOKEN_MIN_LENGTH,
 	chooseMode,
 	deployPlan,
@@ -45,7 +52,7 @@ const ZERO_ID = '00000000-0000-0000-0000-000000000000';
 const EXISTING = `{
 	// an existing install's config
 	"name": "my-crm",
-	"main": ".svelte-kit/cloudflare/_worker.js",
+	"assets": { "binding": "ASSETS" },
 	"d1_databases": [
 		{
 			"binding": "DB",
@@ -77,6 +84,8 @@ function fakeContext(opts: {
 	workersBuilds?: boolean;
 	argv?: string[];
 	write?: (f: string, t: string) => void;
+	/** #741: what a successful `npm run build` leaves behind (default: a wrapped build). */
+	build?: Record<string, string> | false;
 }) {
 	const files: Record<string, string> = { 'wrangler.example.jsonc': template, ...(opts.files ?? {}) };
 	const answers = opts.answers ?? {};
@@ -98,8 +107,11 @@ function fakeContext(opts: {
 				.filter((k) => text === k || text.startsWith(`${k} `))
 				.sort((a, b) => b.length - a.length)[0];
 			const a = key ? answers[key] : undefined;
-			if (!a) return { code: 0, stdout: '' };
-			return typeof a === 'function' ? a(step) : a;
+			const result = !a ? { code: 0, stdout: '' } : typeof a === 'function' ? a(step) : a;
+			if (text === 'npm run build' && result.code === 0 && opts.build !== false) {
+				Object.assign(files, opts.build ?? BUILD_OUTPUT);
+			}
+			return result;
 		},
 		exists: (f: string) => f in files,
 		read: (f: string) => files[f],
@@ -128,6 +140,13 @@ function fakeContext(opts: {
 	};
 	return { ctx, files, calls, captured, logs, secretFiles, removed: () => removed };
 }
+
+/** #741: the files a real `npm run build` writes that the deploy checks. */
+const BUILD_OUTPUT: Record<string, string> = {
+	[DEPLOY_REDIRECT]: JSON.stringify({ configPath: '../../.svelte-kit/cloudflare/worker/wrangler.json' }),
+	[BUILT_CONFIG]: JSON.stringify({ main: 'index.js', no_bundle: true }),
+	[BUILT_ENTRY]: `${WRAPPER_MARKER}\nimport app from './_app.js';\n`
+};
 
 const json = (v: unknown): Result => ({ code: 0, stdout: JSON.stringify(v) });
 const secretList = (names: string[]) => json(names.map((name) => ({ name, type: 'secret_text' })));
@@ -190,7 +209,8 @@ describe('deploy mode (#730)', () => {
 		expect(t.calls).toEqual(['wrangler d1 migrations apply my-db --remote', 'npm run build', 'wrangler deploy']);
 		expect(t.calls).toEqual(deployPlan('my-db').map((s) => s.join(' ')));
 		expect(t.captured).toEqual([false, false, false]);
-		expect(Object.keys(t.files).sort()).toEqual(['wrangler.example.jsonc', 'wrangler.jsonc']);
+		// #741: the build's files stay; only its deploy redirect is deleted after the upload.
+		expect(Object.keys(t.files).sort()).toEqual([BUILT_CONFIG, BUILT_ENTRY, 'wrangler.example.jsonc', 'wrangler.jsonc'].sort());
 		expect(t.files['wrangler.jsonc']).toBe(EXISTING);
 		expect(t.secretFiles).toEqual([]);
 		expect(t.logs).toEqual([
@@ -290,7 +310,8 @@ describe('install mode (#730)', () => {
 		});
 		expect(t.calls.filter((c) => c.startsWith('wrangler deploy'))).toEqual([
 			'wrangler deploy --secrets-file /tmp/fake/secrets.json',
-			'wrangler deploy'
+			// #741: the deploy uploads the build's generated config, so the new var is passed too.
+			'wrangler deploy --var PUBLIC_BASE_URL:https://howdee-crm.someone.workers.dev'
 		]);
 		expect(t.removed()).toBe(1);
 		const sent = t.secretFiles[0];
@@ -803,5 +824,109 @@ describe('scripts never resolve the hidden wrangler path (#671)', () => {
 			.filter(([, src]) => src.includes(needle))
 			.map(([name]) => name);
 		expect(offenders).toEqual([]);
+	});
+});
+
+describe('#741 the deploy uploads only the wrapped build, then drops its redirect', () => {
+	const classic = (opts: Parameters<typeof fakeContext>[0] = {}) => fakeContext({ files: { 'wrangler.jsonc': EXISTING }, ...opts });
+
+	it('joinPosix resolves the redirect path like wrangler does', () => {
+		expect(joinPosix('.wrangler/deploy', '../../.svelte-kit/cloudflare/worker/wrangler.json')).toBe(BUILT_CONFIG);
+		expect(joinPosix('.wrangler/deploy', './../../x')).toBe('x');
+		expect(joinPosix('.wrangler/deploy', '../../../outside')).toBeNull();
+		expect(joinPosix('.wrangler/deploy', '/abs/wrangler.json')).toBeNull();
+	});
+
+	it('classic: deletes .wrangler/deploy/config.json after the upload, and only that file', () => {
+		const t = classic({ files: { 'wrangler.jsonc': EXISTING, [MARKER_FILE.replace('howdee-install', 'other')]: 'keep' } });
+		expect(runDeploy(t.ctx)).toBe(0);
+		expect(t.calls.at(-1)).toBe('wrangler deploy');
+		expect(DEPLOY_REDIRECT in t.files).toBe(false);
+		expect(t.files[MARKER_FILE.replace('howdee-install', 'other')]).toBe('keep');
+		expect(t.files[BUILT_ENTRY].startsWith(WRAPPER_MARKER)).toBe(true);
+	});
+
+	it('classic: a failed upload keeps the redirect (nothing was uploaded)', () => {
+		const t = classic({ answers: { 'wrangler deploy': { code: 1 } } });
+		expect(runDeploy(t.ctx)).toBe(1);
+		expect(DEPLOY_REDIRECT in t.files).toBe(true);
+	});
+
+	it('refuses to upload an unwrapped build', () => {
+		const t = classic({ build: { ...BUILD_OUTPUT, [BUILT_ENTRY]: "import { server } from './server.js';\n" } });
+		expect(runDeploy(t.ctx)).toBe(1);
+		expect(t.calls).not.toContain('wrangler deploy');
+		expect(t.logs.at(-1)).toMatch(/not the wrapped Worker.*npm run build/);
+	});
+
+	it('refuses when the build left no redirect, or one pointing elsewhere', () => {
+		const none = classic({ build: { [BUILT_CONFIG]: '{}', [BUILT_ENTRY]: WRAPPER_MARKER } });
+		expect(runDeploy(none.ctx)).toBe(1);
+		expect(none.calls).not.toContain('wrangler deploy');
+		expect(none.logs.at(-1)).toMatch(/config\.json is missing/);
+		const elsewhere = classic({ build: { ...BUILD_OUTPUT, [DEPLOY_REDIRECT]: JSON.stringify({ configPath: '../../wrangler.jsonc' }) } });
+		expect(runDeploy(elsewhere.ctx)).toBe(1);
+		expect(elsewhere.calls).not.toContain('wrangler deploy');
+		expect(elsewhere.logs.at(-1)).toMatch(/points at "\.\.\/\.\.\/wrangler\.jsonc"/);
+		const broken = classic({ build: { ...BUILD_OUTPUT, [DEPLOY_REDIRECT]: '{' } });
+		expect(runDeploy(broken.ctx)).toBe(1);
+		expect(broken.logs.at(-1)).toMatch(/not valid JSON/);
+	});
+
+	it('builtWorkerProblem accepts the real layout', () => {
+		const files: Record<string, string> = { ...BUILD_OUTPUT };
+		expect(builtWorkerProblem({ exists: (f) => f in files, read: (f) => files[f] })).toBeNull();
+	});
+
+	it('install: both uploads go out, then the redirect is deleted', () => {
+		const t = fakeContext({ answers: FRESH_ANSWERS });
+		expect(runDeploy(t.ctx)).toBe(0);
+		expect(t.calls.filter((c) => c.startsWith('wrangler deploy'))).toHaveLength(2);
+		expect(DEPLOY_REDIRECT in t.files).toBe(false);
+	});
+
+	it('install: an unwrapped build uploads nothing and sets no secret', () => {
+		const t = fakeContext({ answers: FRESH_ANSWERS, build: { ...BUILD_OUTPUT, [BUILT_ENTRY]: 'export default {};' } });
+		expect(runDeploy(t.ctx)).toBe(1);
+		expect(t.calls.some((c) => c.startsWith('wrangler deploy'))).toBe(false);
+		expect(t.secretFiles).toEqual([]);
+	});
+});
+
+describe('#741 wrangler.jsonc must be on the adapter-9 shape', () => {
+	const legacy = EXISTING.replace(
+		'"assets": { "binding": "ASSETS" },',
+		'"main": ".svelte-kit/cloudflare/_worker.js",\n\t"assets": { "directory": ".svelte-kit/cloudflare" },'
+	);
+
+	it('says what to change', () => {
+		expect(configLayoutProblem(EXISTING)).toBeNull();
+		// The shipped template (this file is exported; tests/wrangler-example-607 also checks our own
+		// wrangler.jsonc, privately).
+		expect(configLayoutProblem(template)).toBeNull();
+		expect(configLayoutProblem(configFromTemplate(template))).toBeNull();
+		const msg = configLayoutProblem(legacy)!;
+		expect(msg).toContain('remove "main"');
+		expect(msg).toContain('remove "directory" under "assets"');
+		expect(msg).toContain('set "assets": { "binding": "ASSETS" }');
+		// Comments and trailing commas are fine (read like the rest of the script reads it).
+		expect(configLayoutProblem('{ // c\n "assets": { "binding": "ASSETS", },\n}')).toBeNull();
+		expect(configLayoutProblem('{ "assets": { "binding": "ASSETS", "directory": "x" } }')).toMatch(/remove "directory"/);
+		expect(configLayoutProblem('{ "name": "x" }')).toMatch(/set "assets"/);
+		expect(configLayoutProblem('{ nope')).toMatch(/isn't valid JSONC/);
+	});
+
+	it('an old config stops the deploy before migrations, build or upload', () => {
+		const t = fakeContext({ files: { 'wrangler.jsonc': legacy } });
+		expect(runDeploy(t.ctx)).toBe(1);
+		expect(t.calls).toEqual([]);
+		expect(t.logs.at(-1)).toMatch(/before SvelteKit 3.*Nothing was run\./);
+	});
+
+	it('the upload guard re-checks it (a config edited after the build)', () => {
+		const files: Record<string, string> = { ...BUILD_OUTPUT, 'wrangler.jsonc': legacy };
+		expect(builtWorkerProblem({ exists: (f) => f in files, read: (f) => files[f] })).toMatch(/Nothing was uploaded\./);
+		files['wrangler.jsonc'] = EXISTING;
+		expect(builtWorkerProblem({ exists: (f) => f in files, read: (f) => files[f] })).toBeNull();
 	});
 });

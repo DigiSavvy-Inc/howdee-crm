@@ -29,7 +29,7 @@
 	}
 
 	function feedUrl(key: string): string {
-		const p = new URLSearchParams(page.url.searchParams);
+		const p = new URLSearchParams(page.url.searchParams.toString());
 		if (key === 'all') p.delete('feed');
 		else p.set('feed', key);
 		const q = p.toString();
@@ -343,7 +343,7 @@
 		</div>
 		<nav class="chips">
 			{#each data.feedFilters as f (f.key)}
-				<a class="chip" class:on={data.feed === f.key} href={feedUrl(f.key)} data-sveltekit-noscroll>{f.label}</a>
+				<a class="chip" class:on={data.feed === f.key} href={feedUrl(f.key)} data-sveltekit-reset="false">{f.label}</a>
 			{/each}
 		</nav>
 		{#if data.activity.length === 0}

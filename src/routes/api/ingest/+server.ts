@@ -18,6 +18,8 @@ import { NO_DEFAULT_LIST_ERROR, defaultListName } from '$lib/server/default-list
 
 // Max distinct tags applied per request (key defaults + payload); extras are dropped.
 const MAX_TAGS = 25;
+/** #750: the log row's detail while a deferred confirmation email is still being sent. */
+const CONFIRMATION_SENDING_DETAIL = 'confirmation sending';
 
 // #742: rate limits, requests per 10 minutes. A client is its address (IPv6 by its /64).
 const INGEST_WINDOW_SEC = 600;
@@ -131,11 +133,12 @@ export const POST: RequestHandler = async (event) => {
 	// #742: the stored copy leaves out the `dsv` link token.
 	const loggedBody: Record<string, unknown> = { ...body };
 	delete loggedBody.dsv;
-	const logEvent = async (status: string, detail: string | null) => {
+	// Returns the new row's id (null when the write failed).
+	const logEvent = async (status: string, detail: string | null): Promise<number | null> => {
 		try {
 			const stmts = [
 				db
-					.prepare('INSERT INTO webhook_events (key_id, email, status, detail, payload) VALUES (?, ?, ?, ?, ?)')
+					.prepare('INSERT INTO webhook_events (key_id, email, status, detail, payload) VALUES (?, ?, ?, ?, ?) RETURNING id')
 					.bind(
 						webhookKey?.id ?? null,
 						String(body.email ?? '').trim().toLowerCase().slice(0, 200) || null,
@@ -153,9 +156,20 @@ export const POST: RequestHandler = async (event) => {
 			}
 			// Self-prune: keep the last ~1000 events so the log can't grow unboundedly.
 			stmts.push(db.prepare('DELETE FROM webhook_events WHERE id < (SELECT MAX(id) FROM webhook_events) - 1000'));
-			await db.batch(stmts);
+			const out = await db.batch(stmts);
+			const id = (out[0]?.results?.[0] as { id?: unknown } | undefined)?.id;
+			return typeof id === 'number' ? id : null;
 		} catch (e) {
 			console.error('webhook event log failed:', e);
+			return null;
+		}
+	};
+	// #750: rewrite the detail of a row `logEvent` wrote (the deferred confirmation's outcome).
+	const updateEventDetail = async (id: number, detail: string) => {
+		try {
+			await db.prepare('UPDATE webhook_events SET detail = ? WHERE id = ?').bind(detail, id).run();
+		} catch (e) {
+			console.error('webhook event log update failed:', e);
 		}
 	};
 
@@ -258,17 +272,32 @@ export const POST: RequestHandler = async (event) => {
 				console.error('hygiene (ingest, pending) failed:', e);
 			}
 		}
-		const finish = async () => {
-			const sent = held.delivery ? await held.delivery : null;
-			const ok = sent ? sent.ok : res.sent;
-			const reason = sent ? 'send_failed' : (res.reason ?? 'unknown');
-			const error = sent && !sent.ok ? sent.error : res.error;
-			await logEvent('pending', ok ? 'confirmation sent' : `confirmation not sent: ${reason}${error ? ` (${error.slice(0, 100)})` : ''}`);
-		};
-		const followUp = finish().catch((e) => console.error('ingest confirmation follow-up failed:', e));
-		const waitUntil = waitUntilOf(event);
-		if (waitUntil) waitUntil(followUp);
-		else await followUp;
+		const outcome = (ok: boolean, reason: string, error?: string | null) =>
+			ok ? 'confirmation sent' : `confirmation not sent: ${reason}${error ? ` (${error.slice(0, 100)})` : ''}`;
+		const delivery = held.delivery;
+		if (!delivery) {
+			// Nothing was handed off (no email needed, rate limited, refused): log the outcome now.
+			await logEvent('pending', outcome(res.sent, res.reason ?? 'unknown', res.error));
+		} else {
+			// #750: the row is written before the send is deferred and updated when it finishes, so a
+			// background send that is cut off still leaves its request in the log ("sending").
+			const rowId = await logEvent('pending', CONFIRMATION_SENDING_DETAIL);
+			const finish = async () => {
+				let detail: string;
+				try {
+					const sent = await delivery;
+					detail = outcome(sent.ok, 'send_failed', sent.ok ? null : sent.error);
+				} catch (e) {
+					detail = outcome(false, 'send_failed', e instanceof Error ? e.message : null);
+				}
+				if (rowId != null) await updateEventDetail(rowId, detail);
+				else await logEvent('pending', detail);
+			};
+			const followUp = finish().catch((e) => console.error('ingest confirmation follow-up failed:', e));
+			const waitUntil = waitUntilOf(event);
+			if (waitUntil) waitUntil(followUp);
+			else await followUp;
+		}
 		return json({ ok: true, status: 'pending_confirmation', ...(trusted && res.reason === 'rate_limited' ? { note: 'a confirmation was sent recently' } : {}) });
 	}
 

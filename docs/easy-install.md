@@ -260,13 +260,25 @@ for AI and integrations.
 
 ## One Worker runs the cron (built, #729)
 
-`npm run build` runs `scripts/wrap-worker.mjs` after `vite build`. It moves the adapter's
-`_worker.js` to `_app.js` and writes a new `_worker.js` that exports the same `fetch` plus a
-`scheduled` handler (`withClock` in `src/lib/server/internal-tick.ts`). wrangler's `main` is
-unchanged. The handler runs one tick by calling the app's own `fetch` with an internal request to
-`/api/automations/tick`, marked on the env object, so it needs no `CRON_KEY` and no network hop
-(no error 1042). `wrangler.example.jsonc` has `"triggers": { "crons": ["* * * * *"] }`; without a
-cron the handler never runs.
+`npm run build` runs `scripts/wrap-worker.mjs` after `vite build`. The SvelteKit adapter writes the
+Worker to `.svelte-kit/cloudflare/worker/` (entry `index.js`, deployed unbundled from the
+`wrangler.json` it generates there; `wrangler deploy` finds that config by itself). The script moves
+`index.js` to `_app.js`, writes `internal-tick.js` (`src/lib/server/internal-tick.ts` as JS) and a new
+`index.js` that exports the same `fetch` plus a `scheduled` handler (`withClock`). The handler runs
+one tick by calling the app's own `fetch` with an internal request to `/api/automations/tick`, marked
+on the env (through `withEnv` from `cloudflare:workers`), so it needs no `CRON_KEY` and no network hop
+(no error 1042).
+
+`wrangler.example.jsonc` has `"triggers": { "crons": ["* * * * *"] }`; without a cron the handler
+never runs.
+
+**Upgrading an install from before #741:** in your `wrangler.jsonc`, remove `"main"`, and under
+`"assets"` keep `"binding": "ASSETS"` and remove `"directory"` (so it reads `"assets": { "binding":
+"ASSETS" }`). The adapter sets the entry and the assets folder itself now and stops the build with
+"Remove `main` from wrangler.jsonc" while `main` is there. Keep the binding: with it and no
+`directory`, a `wrangler deploy` run without a fresh build stops with an error ("Cannot use assets
+with a binding in an assets-only Worker") instead of publishing only the static files. `npm run
+deploy` checks both and refuses to upload until they are right.
 
 - **The HTTP endpoint stays.** `POST /api/automations/tick` with `CRON_KEY` works as before, for the
   heartbeat Worker, local dev and manual runs.

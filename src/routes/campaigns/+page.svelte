@@ -120,7 +120,7 @@
 			p.set(k, s);
 		}
 		filtersOpen = false;
-		goto(`?${p}`, { noScroll: true, keepFocus: true });
+		goto(`?${p}`, { reset: false });
 	}
 
 	// Pager range text (#106).
@@ -271,10 +271,10 @@
 				<thead>
 					<tr>
 						{#if isAdmin}<th class="pick"><span class="sr-only">Select for the newsletter archive</span></th>{/if}
-						<th><a class="sort" href={sortUrl('subject')} data-sveltekit-noscroll>Subject<SortCaret dir={arrow('subject')} /></a></th>
+						<th><a class="sort" href={sortUrl('subject')} data-sveltekit-reset="false">Subject<SortCaret dir={arrow('subject')} /></a></th>
 						{#each columns as col (col.key)}
 							<th class:num-col={col.key !== 'status' && col.key !== 'audience' && col.key !== 'type' && col.key !== 'date'}>
-								<a class="sort" href={sortUrl(col.key)} data-sveltekit-noscroll>{col.label}<SortCaret dir={arrow(col.key)} /></a>
+								<a class="sort" href={sortUrl(col.key)} data-sveltekit-reset="false">{col.label}<SortCaret dir={arrow(col.key)} /></a>
 							</th>
 						{/each}
 					</tr>
@@ -365,13 +365,13 @@
 		{#if data.pageCount > 1 || data.matched > 25}
 			<nav class="pager">
 				{#if data.page > 1}
-					<a class="pg" href={urlWith({ page: data.page - 1 })} data-sveltekit-noscroll>← Prev</a>
+					<a class="pg" href={urlWith({ page: data.page - 1 })} data-sveltekit-reset="false">← Prev</a>
 				{:else}
 					<span class="pg disabled">← Prev</span>
 				{/if}
 				<span class="muted pageinfo">Showing {from}–{to} of {data.matched}</span>
 				{#if data.page < data.pageCount}
-					<a class="pg" href={urlWith({ page: data.page + 1 })} data-sveltekit-noscroll>Next →</a>
+					<a class="pg" href={urlWith({ page: data.page + 1 })} data-sveltekit-reset="false">Next →</a>
 				{:else}
 					<span class="pg disabled">Next →</span>
 				{/if}
@@ -381,7 +381,7 @@
 						{#if opt === data.per}
 							<span class="per-opt active">{opt}</span>
 						{:else}
-							<a class="per-opt" href={urlWith({ per: opt, page: 1 })} data-sveltekit-noscroll>{opt}</a>
+							<a class="per-opt" href={urlWith({ per: opt, page: 1 })} data-sveltekit-reset="false">{opt}</a>
 						{/if}
 					{/each}
 				</span>

@@ -741,13 +741,13 @@
 		{#if data.historyTotal > 20}
 			<nav class="pager">
 				{#if data.historyPage > 1}
-					<a class="pg" href="?hpage={data.historyPage - 1}" data-sveltekit-noscroll>← Prev</a>
+					<a class="pg" href="?hpage={data.historyPage - 1}" data-sveltekit-reset="false">← Prev</a>
 				{:else}
 					<span class="pg disabled">← Prev</span>
 				{/if}
 				<span class="muted pageinfo">Showing {historyFrom}–{historyTo} of {data.historyTotal}</span>
 				{#if data.historyPage < data.historyPageCount}
-					<a class="pg" href="?hpage={data.historyPage + 1}" data-sveltekit-noscroll>Next →</a>
+					<a class="pg" href="?hpage={data.historyPage + 1}" data-sveltekit-reset="false">Next →</a>
 				{:else}
 					<span class="pg disabled">Next →</span>
 				{/if}

@@ -192,7 +192,7 @@
 			their registration answers (interests). In Luma (Plus) → event → <em>Webhooks</em>, point
 			a guest webhook at this URL and paste its signing secret here.
 		</p>
-		{#if !data.settings.luma_webhook_secret && !data.lumaSecretFromEnv}
+		{#if data.lumaSecret.from === 'none'}
 			<p class="notice" role="status">Not set up: until a signing secret is saved, the webhook URL refuses every delivery.</p>
 		{/if}
 		<label>
@@ -200,11 +200,11 @@
 			<input value={data.lumaWebhookUrl} readonly onclick={(e) => e.currentTarget.select()} />
 		</label>
 		<label>
-			Signing secret <span class="muted">(<code>whsec_…</code>; {data.settings.luma_webhook_secret ? 'set — leave blank to keep' : data.lumaSecretFromEnv ? 'using env LUMA_WEBHOOK_SECRET — leave blank to keep' : 'not set'})</span>
+			Signing secret <span class="muted">(<code>whsec_…</code>; {data.lumaSecret.from === 'app' ? 'set — leave blank to keep' : data.lumaSecret.from === 'unreadable' ? 'saved, but MAIL_TOKEN_KEY cannot open it: paste it again' : data.lumaSecretFromEnv ? 'using env LUMA_WEBHOOK_SECRET — leave blank to keep' : 'not set'})</span>
 			<input
 				name="luma_webhook_secret"
 				type="password"
-				placeholder={data.settings.luma_webhook_secret || data.lumaSecretFromEnv ? '••••••••••••' : 'whsec_…'}
+				placeholder={data.lumaSecret.from !== 'none' ? '••••••••••••' : 'whsec_…'}
 				autocomplete="off"
 			/>
 		</label>

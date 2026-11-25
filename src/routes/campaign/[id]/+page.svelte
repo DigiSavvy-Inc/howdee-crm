@@ -85,7 +85,7 @@
 			viewing = body.recipient;
 			previewNotice = null;
 			// Shareable: the URL now says who this is, and #email reopens the dialog.
-			const url = new URL(page.url);
+			const url = new URL(page.url.href);
 			url.searchParams.delete('as_contact');
 			url.searchParams.set('as', as);
 			url.hash = 'email';
@@ -149,7 +149,7 @@
 		searchOpen = false;
 		// Drop #email so a reload doesn't reopen the dialog; ?as= stays (next open = same person).
 		if (page.url.hash === '#email') {
-			const url = new URL(page.url);
+			const url = new URL(page.url.href);
 			url.hash = '';
 			replaceState(url, page.state);
 		}
@@ -770,7 +770,7 @@
 		<!-- #529: short, filterable Activity panel; filter + size live in ?activity= / ?rows=. -->
 		<div class="activity-head">
 			<h2>Activity</h2>
-			<form method="GET" data-sveltekit-noscroll data-sveltekit-keepfocus>
+			<form method="GET" data-sveltekit-reset="false">
 				{#each [...page.url.searchParams] as [k, v], i (i)}
 					{#if k !== 'rows'}<input type="hidden" name={k} value={v} />{/if}
 				{/each}
@@ -791,8 +791,8 @@
 					class="chip"
 					class:on={act.filter === f.key}
 					aria-current={act.filter === f.key ? 'true' : undefined}
-					href={activityQuery(page.url.searchParams, { activity: f.key })}
-					data-sveltekit-noscroll>{f.label} <span class="chip-n">{act.counts[f.key]}</span></a
+					href={activityQuery(new URLSearchParams(page.url.searchParams.toString()), { activity: f.key })}
+					data-sveltekit-reset="false">{f.label} <span class="chip-n">{act.counts[f.key]}</span></a
 				>
 			{/each}
 		</nav>
@@ -814,7 +814,7 @@
 				{/each}
 			</ul>
 			{#if act.hasMore && activityMore !== null}
-				<a class="more-link" href={activityQuery(page.url.searchParams, { rows: activityMore })} data-sveltekit-noscroll>Show more</a>
+				<a class="more-link" href={activityQuery(new URLSearchParams(page.url.searchParams.toString()), { rows: activityMore })} data-sveltekit-reset="false">Show more</a>
 			{/if}
 		{/if}
 	</section>

@@ -1,5 +1,6 @@
 import { fail, redirect, type Actions, type RequestEvent } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
+import { isLocalPath } from '$lib/local-path';
 import { getDB, env, FINISH_SETUP_FROM, FINISH_SETUP_SENDING, mailToken, sendingUnconfigured } from '$lib/server/db';
 import { mailSetup } from '$lib/server/mail';
 import { publicBaseUrlFor } from '$lib/server/public-url';
@@ -46,7 +47,7 @@ export const load: PageServerLoad = async (event) => {
 /** `return_to` (thread page buttons): only a /conversations path, else stay on the list. */
 function returnTo(data: FormData): string | null {
 	const v = String(data.get('return_to') ?? '');
-	return /^\/conversations(?:[/?]|$)/.test(v) && !v.startsWith('//') ? v : null;
+	return /^\/conversations(?:[/?]|$)/.test(v) && isLocalPath(v) ? v : null; // #741: no backslash
 }
 
 const plural = (n: number) => `${n} conversation${n === 1 ? '' : 's'}`;

@@ -7,7 +7,7 @@
 	"scripts": {
 		"dev": "vite dev",
 		"build": "wrangler types && vite build && node scripts/wrap-worker.mjs",
-		"preview": "wrangler dev .svelte-kit/cloudflare/_worker.js --port 4173",
+		"preview": "wrangler dev --config .svelte-kit/cloudflare/worker/wrangler.json --port 4173",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "wrangler types && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
@@ -17,16 +17,16 @@
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-pool-workers": "^0.16.14",
-		"@sveltejs/adapter-cloudflare": "^7.2.8",
-		"@sveltejs/kit": "^2.70.4",
-		"@sveltejs/vite-plugin-svelte": "^7.0.0",
+		"@sveltejs/adapter-cloudflare": "^9.0.0",
+		"@sveltejs/kit": "^3.4.0",
+		"@sveltejs/vite-plugin-svelte": "^7.3.2",
 		"@types/papaparse": "^5.5.2",
-		"svelte": "^5.55.2",
+		"svelte": "^5.59.2",
 		"svelte-check": "^4.4.6",
 		"typescript": "^6.0.2",
 		"vite": "^8.0.7",
 		"vitest": "^4.1.8",
-		"wrangler": "^4.159.0"
+		"wrangler": "^4.162.0"
 	},
 	"dependencies": {
 		"@digisavvy/block-editor": "^0.5.0",

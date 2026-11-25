@@ -1,6 +1,6 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { getDB } from '$lib/server/db';
-import { safeEqual } from '$lib/server/auth';
+import { requestKeyMatches } from '$lib/server/request-key';
 import { sessionSecret } from '$lib/server/token';
 import { readReplyTag } from '$lib/server/reply-tag';
 import { credentialError, mailSetup } from '$lib/server/mail';
@@ -31,7 +31,9 @@ import { isInternal } from '$lib/mail-filter';
  * Postmark Inbound webhook (#39). Captures a reply, stores it, and forwards a copy to
  * the operator's inbox so replies still land there too.
  *
- * Auth: `?key=<INBOUND_KEY>` (set on the Postmark inbound webhook URL). In PUBLIC_PREFIXES.
+ * Auth: `?key=<INBOUND_KEY>` (set on the Postmark inbound webhook URL), or since #750 an
+ * Authorization header (Bearer, or Basic with the key as password), which keeps the key out of
+ * logged URLs. Either one matching is enough. In PUBLIC_PREFIXES.
  * Correlation: the reply's `MailboxHash` is our per-recipient tag (from the Reply-To we set on
  * sends, #38; signed since #743, `reply-tag.ts`) → exact campaign + contact. Falls back to
  * In-Reply-To, then to matching the sender's email to a contact.
@@ -40,7 +42,7 @@ export const POST: RequestHandler = async (event) => {
 	// #605: no INBOUND_KEY = reply capture isn't set up. A quiet 404, not a 500.
 	const key = event.platform?.env?.INBOUND_KEY ?? '';
 	if (!key) return json({ error: 'Reply capture is not set up' }, { status: 404 });
-	if (!safeEqual(event.url.searchParams.get('key') ?? '', key)) {
+	if (!requestKeyMatches(event.request, event.url, key)) {
 		return json({ error: 'unauthorized' }, { status: 401 });
 	}
 
