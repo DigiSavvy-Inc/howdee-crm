@@ -24,6 +24,27 @@
 					? `Saved in the app${data.postmark.token.setAt ? ` on ${data.postmark.token.setAt.slice(0, 10)}` : ''}, but it can't be read.`
 					: 'Not set.'
 	);
+
+	// #702: Resend secrets — set / not set only, never a value.
+	type SecretInfo = { source: string; setAt: string | null; setBy: string | null; error: string | null };
+	const secretText = (s: SecretInfo, envName: string) =>
+		s.source === 'app'
+			? `Set in the app${s.setBy ? ` by @${s.setBy}` : ''}${s.setAt ? ` on ${s.setAt.slice(0, 10)}` : ''}.`
+			: s.source === 'env'
+				? `Using the Worker secret ${envName}.`
+				: s.source === 'unreadable'
+					? `Saved in the app${s.setAt ? ` on ${s.setAt.slice(0, 10)}` : ''}, but it can't be read.`
+					: 'Not set.';
+	const resendSecrets = $derived([
+		{ kind: 'api_key', label: 'API key', env: 'RESEND_API_KEY', hint: 'Resend → API Keys. Full access shows domain status here; sending access only sends.', info: data.resend.apiKey },
+		{ kind: 'webhook_secret', label: 'Webhook signing secret', env: 'RESEND_WEBHOOK_SECRET', hint: 'On the webhook’s page in Resend, starts with whsec_.', info: data.resend.webhookSecret }
+	]);
+
+	// Test connection / Send a test run against the provider picked here (default: the active one).
+	let checkProvider = $state('');
+	const checkId = $derived(checkProvider || data.active);
+	const checkLabel = $derived(data.providers.find((p) => p.id === checkId)?.label ?? checkId);
+	const checkReady = $derived(checkId === 'resend' ? data.resend.configured : checkId === data.active ? data.configured : true);
 </script>
 
 <svelte:head><title>Sending</title></svelte:head>
@@ -135,15 +156,64 @@
 </section>
 
 <section class="card">
+	<h2>Resend credentials</h2>
+	{#each resendSecrets as sec (sec.kind)}
+		<p class="small">{sec.label}: {secretText(sec.info, sec.env)}</p>
+		{#if sec.info.error}<p class="notice err" role="alert">{sec.info.error}</p>{/if}
+		<form method="POST" action="?/saveResendSecret" use:enhance={submit}>
+			<input type="hidden" name="kind" value={sec.kind} />
+			<label class="field"
+				><span>{sec.label} <span class="muted">({sec.hint})</span></span>
+				<input type="password" name="value" autocomplete="off" disabled={!data.keyReady} />
+			</label>
+			{#if !data.keyReady}
+				<p class="muted small">MAIL_TOKEN_KEY is not set, so secrets can't be stored in the app. The Worker secret {sec.env} is used.</p>
+			{/if}
+			{#if form && 'resendKind' in form && form.resendKind === sec.kind && 'resendError' in form && form.resendError}<p class="notice err" role="alert">{form.resendError}</p>{/if}
+			{#if form && 'resendSaved' in form && form.resendSaved === sec.kind}<p class="notice ok" role="status">Saved.</p>{/if}
+			{#if form && 'resendRemoved' in form && 'resendKind' in form && form.resendKind === sec.kind}<p class="notice ok" role="status">{form.resendRemoved ? 'Cleared.' : 'Nothing was set in the app.'}</p>{/if}
+			<div class="actions">
+				<button type="submit" disabled={busy || !data.keyReady}>Save</button>
+				{#if sec.info.source === 'app' || sec.info.source === 'unreadable'}
+					<button type="submit" class="secondary" formaction="?/removeResendSecret" disabled={busy}>Clear</button>
+				{/if}
+			</div>
+		</form>
+	{/each}
+	<p class="small">
+		Webhook URL to add in Resend → Webhooks: <code>{data.resendWebhookUrl}</code>. Events: email.delivered, email.bounced, email.complained,
+		email.opened, email.clicked, email.suppressed and email.failed.
+	</p>
+	<p class="small muted">
+		Resend has no message streams: each message is tagged with its stream (broadcast or transactional). Open and click tracking is a
+		setting on each domain in Resend; match it to the tracking choice above. Resend's suppression list is not synced: the CRM's own
+		list decides who is mailed, and Resend's bounce, complaint and suppressed events keep it current.
+	</p>
+</section>
+
+<section class="card">
 	<h2>Check it works</h2>
-	<p class="small">Webhook URL to register on the broadcast stream: <code>{data.webhookUrl}</code></p>
+	<label class="field"
+		><span>Provider to check</span>
+		<select bind:value={checkProvider}>
+			<option value="">{activeLabel} (active)</option>
+			{#each data.providers.filter((p) => p.available && p.id !== data.active) as p (p.id)}<option value={p.id}>{p.label}</option>{/each}
+		</select>
+	</label>
+	{#if checkId === 'resend'}
+		<p class="small">Webhook URL to add in Resend: <code>{data.resendWebhookUrl}</code></p>
+	{:else}
+		<p class="small">Webhook URL to register on the broadcast stream: <code>{data.webhookUrl}</code></p>
+	{/if}
 	<p class="small muted">Last event received: {data.lastEventAt ? `${data.lastEventAt} UTC` : 'none yet'}.</p>
 	<div class="actions">
 		<form method="POST" action="?/test" use:enhance={submit}>
-			<button type="submit" class="secondary" disabled={busy || !data.configured}>Test connection</button>
+			<input type="hidden" name="provider" value={checkId} />
+			<button type="submit" class="secondary" disabled={busy || !checkReady}>Test {checkLabel} connection</button>
 		</form>
 		<form method="POST" action="?/sendTest" use:enhance={submit}>
-			<button type="submit" class="secondary" disabled={busy || !data.configured}>Send a test to me</button>
+			<input type="hidden" name="provider" value={checkId} />
+			<button type="submit" class="secondary" disabled={busy || !checkReady}>Send a test to me</button>
 		</form>
 	</div>
 	{#if form && 'testError' in form && form.testError}<p class="notice err" role="alert">{form.testError}</p>{/if}

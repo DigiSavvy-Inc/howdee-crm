@@ -12,7 +12,7 @@ export type MailProviderId = 'postmark' | 'resend' | 'ses' | 'smtp';
  *  its adapter exists in this build; the others show as "coming soon" and can't be made active. */
 export const MAIL_PROVIDERS: readonly { id: MailProviderId; label: string; available: boolean }[] = [
 	{ id: 'postmark', label: 'Postmark', available: true },
-	{ id: 'resend', label: 'Resend', available: false },
+	{ id: 'resend', label: 'Resend', available: true },
 	{ id: 'ses', label: 'Amazon SES', available: false },
 	{ id: 'smtp', label: 'Custom SMTP', available: false }
 ];
@@ -108,7 +108,8 @@ export function toMailResult(r: SendResult | undefined | null): MailResult | und
 export type MailCapabilities = {
 	/** Can track opens and clicks itself. */
 	tracking: boolean;
-	/** Its own suppression list: synced both ways, only read, or none. */
+	/** Its own suppression list: synced both ways, only read, or not synced at all (`none`: the
+	 *  provider may keep a list, but the app neither reads nor writes it). */
 	suppressions: 'both' | 'read' | 'none';
 	/** Sends delivery / bounce / complaint / open / click events to a webhook. */
 	webhooks: boolean;
@@ -132,7 +133,7 @@ export function capabilityLines(id: MailProviderId, c: MailCapabilities, trackin
 			? `${label} suppression list synced both ways`
 			: c.suppressions === 'read'
 				? `${label} suppression list read only`
-				: 'No provider suppression list: the CRM list only',
+				: `No ${label} suppression sync: the CRM list decides who is mailed`,
 		c.domainApi ? 'Domain status shown in the app' : 'Domain status: check DNS yourself',
 		'Reply capture: Postmark Inbound'
 	];

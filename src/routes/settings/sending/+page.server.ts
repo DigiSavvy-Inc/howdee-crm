@@ -1,12 +1,17 @@
-import { error, fail, type Actions } from '@sveltejs/kit';
+import { error, fail, type Actions, type RequestEvent } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { getDB } from '$lib/server/db';
 import { getSettings } from '$lib/server/settings';
 import { publicBaseUrlFor } from '$lib/server/public-url';
-import { capabilityLines, isMailProviderId, mailSetup, MAIL_PROVIDERS, toMailResult, type SendResult } from '$lib/server/mail';
+import { capabilityLines, credentialError, isMailProviderId, mailSetup, MAIL_PROVIDERS, providerFor, toMailResult, type MailCredentials, type MailProviderId, type SendResult } from '$lib/server/mail';
 import {
 	campaignSending,
 	cleanPostmarkToken,
+	cleanResendSecret,
+	removeResendSecret,
+	resendSecretInfo,
+	setResendSecret,
+	type ResendSecretKind,
 	mailKeyReady,
 	mailSettingsEvents,
 	postmarkTokenInfo,
@@ -22,10 +27,22 @@ import { isTrackingMode } from '$lib/server/mail/provider';
 // Settings → Sending (#700, 1/5 of #699; docs/sending-providers.md). Admin-only (load + every
 // action): the sending provider, its credentials (the server token sealed with MAIL_TOKEN_KEY,
 // shown only as set / not set), Test connection (sends nothing), Send a test to me and what the
-// provider supports. Only Postmark can be made active until the other adapters exist.
+// provider supports. #702: Resend's API key and webhook signing secret (sealed the same way);
+// Test connection / Send a test take the provider picked on the page, so a provider can be
+// checked before it is made active.
 
 function requireAdmin(event: { locals: App.Locals }) {
 	if (event.locals.user?.role !== 'admin') throw error(403, 'Admins only.');
+}
+
+/** #702: the provider picked in the form (`provider`), else the active one — so a provider can be
+ *  tested before it is made active. Built from the same resolved credentials. */
+async function chosenProvider(event: RequestEvent) {
+	const { provider, creds } = await mailSetup(getDB(event), event.platform?.env);
+	const picked = String((await event.request.clone().formData()).get('provider') ?? '');
+	if (!isMailProviderId(picked) || picked === creds.provider || !MAIL_PROVIDERS.find((p) => p.id === picked)?.available) return { provider, creds };
+	const other: MailCredentials = { ...creds, provider: picked as MailProviderId };
+	return { provider: providerFor(event.platform?.env, other), creds: other };
 }
 
 function by(event: { locals: App.Locals }) {
@@ -37,10 +54,12 @@ export const load: PageServerLoad = async (event) => {
 	requireAdmin(event);
 	const db = getDB(event);
 	const env = event.platform?.env;
-	const [{ provider, creds }, stored, token, events, sending, lastEvent, baseUrl] = await Promise.all([
+	const [{ provider, creds }, stored, token, resendKey, resendHook, events, sending, lastEvent, baseUrl] = await Promise.all([
 		mailSetup(db, env),
 		readMailSettings(db),
 		postmarkTokenInfo(db, env),
+		resendSecretInfo(db, env, 'api_key'),
+		resendSecretInfo(db, env, 'webhook_secret'),
 		mailSettingsEvents(db),
 		campaignSending(db),
 		db.prepare(`SELECT recorded_at FROM events ORDER BY id DESC LIMIT 1`).first<{ recorded_at: string }>(),
@@ -72,8 +91,11 @@ export const load: PageServerLoad = async (event) => {
 			webhookKeySet: !!creds.postmark.webhookKey,
 			accountTokenSet: !!creds.postmark.accountToken
 		},
+		// #702: set / not set only — never a value.
+		resend: { apiKey: resendKey, webhookSecret: resendHook, configured: !!creds.resend.apiKey },
 		// The key itself never reaches the page: the URL shows where it goes.
 		webhookUrl: `${baseUrl}/api/webhook?key=<WEBHOOK_KEY>`,
+		resendWebhookUrl: `${baseUrl}/api/webhook/resend`,
 		lastEventAt: lastEvent?.recorded_at ?? null,
 		events
 	};
@@ -84,7 +106,13 @@ export const actions: Actions = {
 		requireAdmin(event);
 		const id = String((await event.request.formData()).get('provider') ?? '');
 		if (!isMailProviderId(id)) return fail(400, { providerError: 'Pick a provider.' });
-		const res = await setActiveProvider(getDB(event), id, by(event));
+		const db = getDB(event);
+		// #702: a provider with no credential would stop every send.
+		if (id === 'resend') {
+			const { creds } = await mailSetup(db, event.platform?.env);
+			if (!creds.resend.apiKey) return fail(400, { providerError: creds.resend.apiKeyError ?? 'Set the Resend API key first, then make Resend active.' });
+		}
+		const res = await setActiveProvider(db, id, by(event));
 		if (!res.ok) return fail(409, { providerError: res.error });
 		return { providerSaved: true };
 	},
@@ -127,11 +155,32 @@ export const actions: Actions = {
 		return { streamsSaved: true };
 	},
 
+	// #702: Resend secrets (API key, webhook signing secret), sealed with MAIL_TOKEN_KEY.
+	saveResendSecret: async (event) => {
+		requireAdmin(event);
+		const env = event.platform?.env;
+		const data = await event.request.formData();
+		const kind: ResendSecretKind = data.get('kind') === 'webhook_secret' ? 'webhook_secret' : 'api_key';
+		const name = kind === 'api_key' ? 'RESEND_API_KEY' : 'RESEND_WEBHOOK_SECRET';
+		if (!mailKeyReady(env)) return fail(400, { resendError: `MAIL_TOKEN_KEY is not set, so secrets can’t be stored in the app. Use the Worker secret ${name} instead.`, resendKind: kind });
+		const cleaned = cleanResendSecret(kind, String(data.get('value') ?? ''));
+		if (!cleaned.ok) return fail(400, { resendError: cleaned.error, resendKind: kind });
+		await setResendSecret(getDB(event), env, kind, cleaned.value, by(event));
+		return { resendSaved: kind };
+	},
+
+	removeResendSecret: async (event) => {
+		requireAdmin(event);
+		const kind: ResendSecretKind = (await event.request.formData()).get('kind') === 'webhook_secret' ? 'webhook_secret' : 'api_key';
+		const removed = await removeResendSecret(getDB(event), kind, by(event));
+		return { resendRemoved: removed, resendKind: kind };
+	},
+
 	// Checks the credentials and streams; sends nothing.
 	test: async (event) => {
 		requireAdmin(event);
-		const { provider, creds } = await mailSetup(getDB(event), event.platform?.env);
-		if (!provider) return fail(400, { testError: creds.postmark.tokenError ?? 'The provider isn’t configured yet: set its credentials first.' });
+		const { provider, creds } = await chosenProvider(event);
+		if (!provider) return fail(400, { testError: credentialError(creds) ?? 'The provider isn’t configured yet: set its credentials first.' });
 		const check = await provider.check();
 		return { check: { ok: check.ok, summary: check.summary, rows: check.rows } };
 	},
@@ -141,8 +190,8 @@ export const actions: Actions = {
 		requireAdmin(event);
 		const db = getDB(event);
 		const env = event.platform?.env;
-		const { provider, creds } = await mailSetup(db, env);
-		if (!provider) return fail(400, { sendError: creds.postmark.tokenError ?? 'The provider isn’t configured yet: set its credentials first.' });
+		const { provider, creds } = await chosenProvider(event);
+		if (!provider) return fail(400, { sendError: credentialError(creds) ?? 'The provider isn’t configured yet: set its credentials first.' });
 		const me = await db.prepare('SELECT email FROM users WHERE id = ?').bind(event.locals.user!.id).first<{ email: string | null }>();
 		const to = (me?.email ?? '').trim();
 		if (!to) return fail(400, { sendError: 'Your user record has no email address (Account → Email).' });

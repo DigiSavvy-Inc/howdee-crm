@@ -1,7 +1,7 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { getDB } from '$lib/server/db';
 import { safeEqual } from '$lib/server/auth';
-import { mailSetup } from '$lib/server/mail';
+import { credentialError, mailSetup } from '$lib/server/mail';
 import { getSettings, parseEmailList } from '$lib/server/settings';
 import { pickInboundText } from '$lib/server/inbound-text';
 import { markDirty } from '$lib/server/engagement';
@@ -198,7 +198,7 @@ export const POST: RequestHandler = async (event) => {
 		try {
 			// #700: the active sending provider (Settings → Sending, else the env).
 			const { provider: mail, creds: mailCreds } = await mailSetup(db, event.platform?.env);
-			if (!mail) throw new Error(mailCreds.postmark.tokenError ?? 'no sending provider is configured (POSTMARK_TOKEN)');
+			if (!mail) throw new Error(credentialError(mailCreds) ?? 'no sending provider is configured (POSTMARK_TOKEN)');
 			const txStream = mail.streams.transactional;
 			const baseUrl = await publicBaseUrl(db, event.platform?.env, event.url.origin);
 

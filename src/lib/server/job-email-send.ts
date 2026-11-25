@@ -10,7 +10,7 @@
 // recorded, not retried.
 
 import { sendCampaignEmail } from './send';
-import { mailSetup } from './mail';
+import { credentialError, mailSetup } from './mail';
 import { fromAllowed, getSettings } from './settings';
 import { resolveEmailRecipients, reviewToAddress, type EmailMessage, type EmailOutcome, type EmailSelection, type JobEmailSender } from './ai/jobs-email';
 
@@ -40,7 +40,7 @@ export async function sendJobEmail(
 	if (!EMAIL_RE.test(from)) return fail(`${env.REVIEW_FROM ? 'REVIEW_FROM' : 'Default From'} is not an email address.`);
 	if (!fromAllowed(from, settings.approved_senders)) return fail(`From ${from} is not in Settings → Approved senders.`);
 	const { provider: mail, creds } = await mailSetup(db, env);
-	if (!mail) return fail(creds.postmark.tokenError ?? 'POSTMARK_TOKEN is not set.');
+	if (!mail) return fail(credentialError(creds) ?? 'POSTMARK_TOKEN is not set.');
 	const { addresses } = await resolveEmailRecipients(db, sel, reviewToAddress(env, settings.default_from));
 	if (!addresses.length) return fail('No recipient has an email address (admins need one on their user record).');
 

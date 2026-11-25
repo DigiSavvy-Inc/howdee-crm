@@ -23,7 +23,7 @@ import { addTag } from './automations';
 import { applyContactMeta } from './contact-write';
 import { cleanRatingInputs, insertRatings, type RatingInput } from './contact-ratings';
 import { subscriptionChanged } from './subscription-trigger';
-import { getMailProvider, isHardSuppression, mailSetup } from './mail';
+import { credentialError, getMailProvider, isHardSuppression, mailSetup } from './mail';
 import { RESUB_REFUSED } from './unsubscribe-page';
 import { fireFormTriggersForSubmission } from './form-trigger';
 import { b64urlEncode } from './token';
@@ -218,7 +218,7 @@ async function sendConfirmEmail(
 	opts: DoiOpts
 ): Promise<{ ok: true } | { ok: false; error: string }> {
 	const { provider: mail, creds } = await mailSetup(db, env);
-	if (!mail) return { ok: false, error: creds.postmark.tokenError ?? 'POSTMARK_TOKEN is not set.' };
+	if (!mail) return { ok: false, error: credentialError(creds) ?? 'POSTMARK_TOKEN is not set.' };
 	const cfg = await getDoiConfig(db);
 	const baseUrl = opts.baseUrl ?? (await publicBaseUrl(db, env));
 	const url = `${baseUrl}/confirm/${encodeURIComponent(token)}`;
@@ -616,7 +616,7 @@ export async function sendDoiTest(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
 	if (!isEmail(to)) return { ok: false, error: 'Your user record has no email address.' };
 	const { provider: mail, creds } = await mailSetup(db, env);
-	if (!mail) return { ok: false, error: creds.postmark.tokenError ?? 'POSTMARK_TOKEN is not set.' };
+	if (!mail) return { ok: false, error: credentialError(creds) ?? 'POSTMARK_TOKEN is not set.' };
 	const cfg = await getDoiConfig(db);
 	const baseUrl = opts.baseUrl ?? (await publicBaseUrl(db, env));
 	const msg = renderConfirmEmail(cfg, `${baseUrl}/confirm/preview`);

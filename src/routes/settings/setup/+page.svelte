@@ -4,7 +4,7 @@
 
 	const GROUPS = [
 		{ id: 'required', title: 'Required', intro: 'The app needs every one of these to send and track email.' },
-		{ id: 'postmark', title: 'Postmark', intro: 'Set up in Postmark itself; tracking and unsubscribes depend on them.' },
+		{ id: 'postmark', title: 'Sending provider', intro: 'Set up in the provider itself (Postmark or Resend); tracking and unsubscribes depend on them.' },
 		{ id: 'optional', title: 'Optional integrations', intro: 'Each one stays off until you set it up.' }
 	] as const;
 

@@ -20,6 +20,9 @@ export const MAIL_SETTINGS_KEY = 'mail_settings';
 export const MAIL_SETTINGS_EVENTS_KEY = 'mail_settings_events';
 /** `integration_secrets.provider` of the Postmark server token set in Settings → Sending. */
 export const POSTMARK_SECRET = 'mail_postmark';
+/** #702: the Resend API key and webhook signing secret set in Settings → Sending. */
+export const RESEND_KEY_SECRET = 'mail_resend';
+export const RESEND_WEBHOOK_SECRET_ROW = 'mail_resend_webhook';
 const EVENTS_MAX = 100;
 const STREAM_RE = /^[A-Za-z0-9_-]{1,100}$/;
 
@@ -35,6 +38,10 @@ export type SecretSource = 'app' | 'env' | 'none' | 'unreadable';
 
 /** What a send, the setup check and Settings → Sending say about an unreadable stored token. */
 export const UNREADABLE_TOKEN_ERROR = "The sending token saved in Settings → Sending can't be read. Check MAIL_TOKEN_KEY, or save the token again.";
+/** #702: the same for the Resend API key (sending stops; RESEND_API_KEY is not used instead). */
+export const UNREADABLE_RESEND_KEY_ERROR = "The Resend API key saved in Settings → Sending can't be read. Check MAIL_TOKEN_KEY, or save the key again.";
+/** #702: the webhook signing secret — Resend events are refused until it is fixed. */
+export const UNREADABLE_RESEND_WEBHOOK_ERROR = "The Resend webhook signing secret saved in Settings → Sending can't be read. Check MAIL_TOKEN_KEY, or save it again.";
 
 export type MailCredentials = {
 	provider: MailProviderId;
@@ -54,7 +61,25 @@ export type MailCredentials = {
 		webhookKey: string;
 		accountToken: string;
 	};
+	/** #702. Read whatever the active provider is: the webhook keeps accepting events for mail
+	 *  Resend sent after a switch away, while its secret stays set. */
+	resend: {
+		apiKey: string;
+		apiKeyFrom: SecretSource;
+		/** Set (and `apiKey` empty) when the stored key can't be read. */
+		apiKeyError: string | null;
+		webhookSecret: string;
+		webhookSecretFrom: SecretSource;
+		webhookSecretError: string | null;
+	};
 };
+
+/** #702: why the active provider has no usable credential although one is saved (an unreadable
+ *  secret), else null. What a refused send says instead of "not set". */
+export function credentialError(creds: Pick<MailCredentials, 'provider' | 'postmark'> & { resend?: MailCredentials['resend'] }): string | null {
+	if (creds.provider === 'resend') return creds.resend?.apiKeyError ?? null;
+	return creds.postmark.tokenError;
+}
 
 /** The Worker env, or any env-shaped object (tests, callers' own env types). */
 type AnyEnv = unknown;
@@ -135,7 +160,17 @@ async function readStoredSecret(db: D1Database, env: AnyEnv, provider: string): 
 export async function resolveMailCredentials(db: D1Database | null | undefined, env: AnyEnv): Promise<MailCredentials> {
 	const settings = await readMailSettings(db);
 	const active = activeProviderId(settings, env);
-	const stored: StoredSecret = db ? await readStoredSecret(db, env, POSTMARK_SECRET) : { state: 'none' };
+	const none: StoredSecret = { state: 'none' };
+	const [stored, resendKey, resendHook] = db
+		? await Promise.all([
+				readStoredSecret(db, env, POSTMARK_SECRET),
+				readStoredSecret(db, env, RESEND_KEY_SECRET),
+				readStoredSecret(db, env, RESEND_WEBHOOK_SECRET_ROW)
+			])
+		: [none, none, none];
+	if (resendKey.state === 'unreadable' && active.id === 'resend') {
+		console.error('mail: the Resend API key saved in Settings → Sending could not be read (MAIL_TOKEN_KEY missing, invalid or changed); sending is off until it is fixed');
+	}
 	if (stored.state === 'unreadable') {
 		console.error('mail: the Postmark token saved in Settings → Sending could not be read (MAIL_TOKEN_KEY missing, invalid or changed); sending is off until it is fixed');
 	}
@@ -161,8 +196,27 @@ export async function resolveMailCredentials(db: D1Database | null | undefined, 
 			txStream: settings.postmark?.txStream || str(env, 'POSTMARK_STREAM_TX') || 'outbound',
 			webhookKey: str(env, 'WEBHOOK_KEY'),
 			accountToken: str(env, 'POSTMARK_ACCOUNT_TOKEN')
-		}
+		},
+		resend: (() => {
+			const key = secretFields(resendKey, str(env, 'RESEND_API_KEY'), UNREADABLE_RESEND_KEY_ERROR);
+			const hook = secretFields(resendHook, str(env, 'RESEND_WEBHOOK_SECRET'), UNREADABLE_RESEND_WEBHOOK_ERROR);
+			return {
+				apiKey: key.value,
+				apiKeyFrom: key.from,
+				apiKeyError: key.error,
+				webhookSecret: hook.value,
+				webhookSecretFrom: hook.from,
+				webhookSecretError: hook.error
+			};
+		})()
 	};
+}
+
+/** A stored secret, else the env value — never the env value when a stored one is unreadable. */
+function secretFields(stored: StoredSecret, envValue: string, unreadable: string): { value: string; from: SecretSource; error: string | null } {
+	if (stored.state === 'ok') return { value: stored.value, from: 'app', error: null };
+	if (stored.state === 'unreadable') return { value: '', from: 'unreadable', error: unreadable };
+	return { value: envValue, from: envValue ? 'env' : 'none', error: null };
 }
 
 /** The legacy credential bundle (`{ token, stream, txStream }`) for code that still threads one. */
@@ -284,4 +338,53 @@ export async function postmarkTokenInfo(
 	if (stored.state === 'ok') return { source: 'app', setAt: stored.row.set_at, setBy: stored.row.set_by_login, error: null };
 	if (stored.state === 'unreadable') return { source: 'unreadable', setAt: stored.row.set_at, setBy: stored.row.set_by_login, error: UNREADABLE_TOKEN_ERROR };
 	return { source: str(env, 'POSTMARK_TOKEN') ? 'env' : 'none', setAt: null, setBy: null, error: null };
+}
+
+// ---------------------------------------------------------------------------------------
+// #702: Resend credentials (Settings → Sending). Sealed like the Postmark token; the audit rows
+// never carry any part of a value.
+
+export type ResendSecretKind = 'api_key' | 'webhook_secret';
+const RESEND_ROWS: Record<ResendSecretKind, { row: string; label: string; env: string }> = {
+	api_key: { row: RESEND_KEY_SECRET, label: 'Resend API key', env: 'RESEND_API_KEY' },
+	webhook_secret: { row: RESEND_WEBHOOK_SECRET_ROW, label: 'Resend webhook signing secret', env: 'RESEND_WEBHOOK_SECRET' }
+};
+
+export function cleanResendSecret(kind: ResendSecretKind, raw: string): { ok: true; value: string } | { ok: false; error: string } {
+	const value = raw.trim();
+	if (kind === 'api_key') {
+		if (!value) return { ok: false, error: 'Paste the Resend API key.' };
+		if (/\s/.test(value) || !value.startsWith('re_') || value.length < 10 || value.length > 200) return { ok: false, error: 'That doesn’t look like a Resend API key (it starts with re_).' };
+		return { ok: true, value };
+	}
+	if (!value) return { ok: false, error: 'Paste the webhook signing secret.' };
+	if (/\s/.test(value) || !value.startsWith('whsec_') || value.length < 16 || value.length > 200) return { ok: false, error: 'That doesn’t look like a webhook signing secret (it starts with whsec_).' };
+	return { ok: true, value };
+}
+
+export async function setResendSecret(db: D1Database, env: AnyEnv, kind: ResendSecretKind, value: string, by: By): Promise<void> {
+	const r = RESEND_ROWS[kind];
+	await storeSecret(db, str(env, 'MAIL_TOKEN_KEY') || undefined, r.row, value, by?.id ?? null, { last4: '' });
+	await logMailSettingsEvent(db, `${r.label} set`, by);
+}
+
+export async function removeResendSecret(db: D1Database, kind: ResendSecretKind, by: By): Promise<boolean> {
+	const r = RESEND_ROWS[kind];
+	const removed = await deleteSecret(db, r.row);
+	if (removed) await logMailSettingsEvent(db, `${r.label} cleared`, by);
+	return removed;
+}
+
+/** Set / not set / stored but unreadable, and since when — never the value. */
+export async function resendSecretInfo(
+	db: D1Database,
+	env: AnyEnv,
+	kind: ResendSecretKind
+): Promise<{ source: SecretSource; setAt: string | null; setBy: string | null; error: string | null }> {
+	const r = RESEND_ROWS[kind];
+	const stored = await readStoredSecret(db, env, r.row);
+	if (stored.state === 'ok') return { source: 'app', setAt: stored.row.set_at, setBy: stored.row.set_by_login, error: null };
+	if (stored.state === 'unreadable')
+		return { source: 'unreadable', setAt: stored.row.set_at, setBy: stored.row.set_by_login, error: kind === 'api_key' ? UNREADABLE_RESEND_KEY_ERROR : UNREADABLE_RESEND_WEBHOOK_ERROR };
+	return { source: str(env, r.env) ? 'env' : 'none', setAt: null, setBy: null, error: null };
 }

@@ -32,8 +32,20 @@ export { FINISH_SETUP_FROM, FINISH_SETUP_SENDING } from '$lib/finish-setup';
  * check it before any write and answer `fail(409, …)` with `FINISH_SETUP_SENDING` inline; an
  * unreadable saved token still goes through `mailToken` (a 500, as before).
  */
-export function sendingUnconfigured(provider: unknown, creds: { postmark: { tokenError: string | null } }): boolean {
-	return !provider && !creds.postmark.tokenError;
+export function sendingUnconfigured(provider: unknown, creds: CredsLike): boolean {
+	return !provider && !activeError(creds);
+}
+
+/** #702: the slice of MailCredentials these helpers read (tests pass a Postmark-only shape). */
+type CredsLike = {
+	provider?: string;
+	postmark: { token: string; tokenError: string | null };
+	resend?: { apiKey: string; apiKeyError: string | null };
+};
+
+/** The active provider's unreadable-secret error (Postmark token, or #702 the Resend key). */
+function activeError(creds: CredsLike): string | null {
+	return creds.provider === 'resend' ? (creds.resend?.apiKeyError ?? null) : creds.postmark.tokenError;
 }
 
 /**
@@ -42,7 +54,14 @@ export function sendingUnconfigured(provider: unknown, creds: { postmark: { toke
  * the env token (docs/sending-providers.md). #731: none at all → a 409 "Finish setup" (an install
  * that hasn't connected a provider yet), not a 500.
  */
-export function mailToken(_event: RequestEvent, creds: { postmark: { token: string; tokenError: string | null } }): string {
+export function mailToken(_event: RequestEvent, creds: CredsLike): string {
+	// #702: with Resend active the routes send through the provider; the Postmark token they still
+	// thread is only a fallback no caller uses then, so it may be ''.
+	if (creds.provider === 'resend') {
+		if (creds.resend?.apiKeyError) throw error(500, creds.resend.apiKeyError);
+		if (!creds.resend?.apiKey) throw error(409, FINISH_SETUP_SENDING);
+		return creds.postmark.token;
+	}
 	if (creds.postmark.tokenError) throw error(500, creds.postmark.tokenError);
 	if (!creds.postmark.token) throw error(409, FINISH_SETUP_SENDING);
 	return creds.postmark.token;

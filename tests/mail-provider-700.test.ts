@@ -391,7 +391,7 @@ describe('Settings → Sending', () => {
 	});
 
 	it('only an available provider can be made active', async () => {
-		expect(await setActiveProvider(db, 'resend', admin)).toMatchObject({ ok: false });
+		expect(await setActiveProvider(db, 'ses', admin)).toMatchObject({ ok: false });
 		expect(await setActiveProvider(db, 'postmark', admin)).toEqual({ ok: true, changed: true });
 		expect((await resolveMailCredentials(db, { MAIL_PROVIDER: 'ses' })).provider).toBe('postmark');
 		expect(await setPostmarkStreams(db, { stream: 'same', txStream: 'same' }, admin)).toMatchObject({ ok: false });

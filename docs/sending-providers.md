@@ -19,11 +19,9 @@ the reports and the history all stay in the CRM, whichever provider you pick.
 | **Opens and clicks** | Postmark, or the CRM | Resend (set per domain), or the CRM | SES (set per configuration set), or the CRM | Always the CRM |
 | **Bounces** | Webhook | Webhook | SNS notification | Refusals at send time, plus bounce messages (DSNs) read at the reply-capture address |
 | **Spam complaints** | Webhook | Webhook | SNS notification | Not available |
-| **Provider suppression list** | Synced both ways, per stream | Synced both ways when your account has Resend's Suppressions API, otherwise read from webhooks | Synced both ways with the account-level suppression list | None: the CRM's list only |
+| **Provider suppression list** | Synced both ways, per stream | Not synced yet: the CRM's list decides, and `email.suppressed` webhooks arrive as hard bounces. Resend now has a public Suppressions API; two-way sync is a planned follow-up | Synced both ways with the account-level suppression list | None: the CRM's list only |
 | **Domain status in the app** | DKIM and Return-Path (with `POSTMARK_ACCOUNT_TOKEN`) | Domain and DNS record status (needs a full-access key) | Verification, DKIM and custom MAIL FROM status | Not available: check DNS yourself |
 | **Reply capture** | Postmark Inbound | Postmark Inbound | Postmark Inbound | Postmark Inbound |
-
-<!-- confirm: Resend's Suppressions API was in private beta when this was written ("APIs might change before GA"). Check that list, add and remove are generally available before building two-way sync. -->
 
 Reply capture is separate from sending. It uses Postmark Inbound with every provider, so you can
 send through SES and still capture replies with a free Postmark inbound address. See
@@ -34,8 +32,8 @@ send through SES and still capture replies with a free Postmark inbound address.
 **Settings → Sending** (admins) is where you pick the provider and check it works.
 
 1. **Choose the provider.** Postmark, Resend, Amazon SES or Custom SMTP. A provider whose adapter
-   isn't in this version yet is listed as "coming soon" and can't be chosen (Postmark is the only one
-   so far; Resend, SES and SMTP follow). The page lists what the active provider supports, using the
+   isn't in this version yet is listed as "coming soon" and can't be chosen (Postmark and Resend so
+   far; SES and SMTP follow). The page lists what the active provider supports, using the
    rows of the table above, for example "Opens tracked by the CRM" or "Complaints: not available".
 2. **Enter the credentials.** Each provider's fields are listed in its section below. Secrets are
    stored encrypted with `MAIL_TOKEN_KEY`, like the other integration secrets, and every change is
@@ -44,20 +42,24 @@ send through SES and still capture replies with a free Postmark inbound address.
    it and when). Without `MAIL_TOKEN_KEY` the secret fields are disabled and the app
    reads the Worker secrets instead (see [Environment variables](#environment-variables)). A field
    that is empty in Settings but set as a Worker secret says "Using the Worker secret".
-3. **Test connection.** This checks the credentials without sending anything:
+3. **Test connection.** Pick the provider under **Provider to check** (the active one by default),
+   so you can check a provider before making it active. This checks the credentials without sending
+   anything:
    - Postmark reads the server and both message streams.
-   - Resend lists your domains. A sending-only key passes, with a note that domain status and
-     suppression sync are off.
+   - Resend lists your domains and says which are verified. A sending-only key passes, with a note
+     that domain status is off. It also says whether the webhook signing secret is set, and warns
+     when a verified domain's tracking setting disagrees with the app's (see Resend → Tracking).
    - SES reads the account (sandbox or production, daily quota, send rate), the From domain's identity
      and both configuration sets.
    - SMTP connects, upgrades to TLS, signs in and says goodbye. It reports the server's greeting, the
      sign-in method it used and the largest message size the server accepts.
-4. **Send a test to me.** Sends one real email to your own address through the chosen provider, on
+4. **Send a test to me.** Sends one real email to your own address through the provider picked
+   under **Provider to check**, on
    the transactional stream, from the default From address. The page shows the provider's message
    id. When the webhook is set up, the test's delivery event moves the page's "Last event received"
    time within a minute (reload the page), which proves events are arriving too.
 5. **Make active.** The provider becomes the one every new send uses. You can't switch while a
-   campaign is sending. Read [Switching providers](#switching-providers-on-a-live-install) first if
+   campaign is sending, and Resend can't be made active before its API key is set. Read [Switching providers](#switching-providers-on-a-live-install) first if
    this install has already sent mail.
 
 The page also shows the webhook URL to register for the chosen provider and the time the last event
@@ -96,18 +98,20 @@ https://crm.example.com/api/webhook?key=<WEBHOOK_KEY>
 
 ## Resend
 
-**What you need:** a Resend account with your sending domain verified (Resend → Domains).
+**What you need:** a Resend account with your sending domain verified (Resend → Domains). Resend
+requires a verified domain to send. Open and click tracking are set per domain in Resend (see
+**Tracking** below).
 
 **Credentials**
 
 | Setting | Worker secret | Notes |
 | --- | --- | --- |
-| API key | `RESEND_API_KEY` | Resend → API Keys. **Full access** lets the app show domain status and sync suppressions. **Sending access** (optionally limited to one domain) only sends. |
+| API key | `RESEND_API_KEY` | Resend → API Keys. **Full access** lets the app show domain status. **Sending access** (optionally limited to one domain) only sends. Suppression sync with Resend is not built yet: the CRM's own list is used, and webhooks keep it current. |
 | Webhook signing secret | `RESEND_WEBHOOK_SECRET` | Shown on the webhook's details page in Resend. Starts with `whsec_`. |
 
 **Streams.** Resend has no message streams. Broadcast and transactional mail go out from the same
-account, and the app tags each message with `stream` (`broadcast` or `transactional`) and the ids of
-the campaign, contact and send. If you want broadcasts to have their own reputation, send them from
+account. The app tags each message with `stream` (`broadcast` or `transactional`), `campaign_id`
+and, when the recipient is a contact, `contact_id`. If you want broadcasts to have their own reputation, send them from
 a subdomain (for example `news.example.com`) verified in Resend, and use an address on it as the
 campaign's From.
 
@@ -118,16 +122,14 @@ https://crm.example.com/api/webhook/resend
 ```
 
 Select these events: `email.delivered`, `email.bounced`, `email.complained`, `email.opened`,
-`email.clicked`, `email.suppressed` and `email.failed`. Add `suppression.added` and
-`suppression.removed` too if your account has them. Then copy the signing secret into Settings →
-Sending.
+`email.clicked`, `email.suppressed` and `email.failed`. Then copy the signing secret into Settings →
+Sending. Other events (for example `email.sent` or `email.delivery_delayed`) are accepted and
+ignored.
 
 The app checks every request's signature before it reads anything. Resend signs webhooks with Svix:
 the `svix-id`, `svix-timestamp` and `svix-signature` headers, and an HMAC-SHA256 over
 `<svix-id>.<svix-timestamp>.<raw body>` keyed with the base64-decoded part of the secret after
 `whsec_`. A request with a bad signature, or a timestamp more than 5 minutes from now, gets a 401.
-
-<!-- confirm: the Svix scheme above is from Svix's own docs; Resend's page names the three svix-* headers but doesn't spell out the signed string. Check a recorded Resend request against it. -->
 
 **How Resend events map**
 
@@ -137,13 +139,45 @@ the `svix-id`, `svix-timestamp` and `svix-signature` headers, and an HMAC-SHA256
 | `email.opened` | open (only while Resend does the tracking) |
 | `email.clicked` | click (only while Resend does the tracking) |
 | `email.bounced` with `bounce.type` `Permanent` | hard bounce: the contact is suppressed |
-| `email.bounced` with another type | soft bounce: recorded, not suppressed |
+| `email.bounced` with `bounce.type` `Transient` or `Undetermined` | soft bounce: recorded, not suppressed |
 | `email.suppressed` | hard bounce: Resend refused to send to a suppressed address |
 | `email.complained` | spam complaint: the contact is suppressed |
 | `email.failed` | the send is marked failed, with Resend's reason |
-| `suppression.added` / `suppression.removed` | suppression sync |
+| anything else | ignored |
 
-<!-- confirm: Resend's docs give `Permanent` and `Temporary` as example bounce.type values; check the full set against a recorded soft bounce. -->
+A retry of the same webhook delivery (the same `svix-id`) is recorded once. The IP address Resend
+reports for clicks is never stored; the user agent is. Resend's open events carry no mail client,
+so an open from Resend is stored with an empty user agent. Resend doesn't say whether an open is
+the first one, so the app works that out itself.
+
+**Sending.** The app sends up to 100 messages per call to `POST /emails/batch`. One invalid message
+fails that whole batch of up to 100, and those rows are marked with Resend's error. Each call
+carries an `Idempotency-Key` and the app's `User-Agent`. When Resend answers 429 (rate limit) or a
+server error, or the connection drops, the same call is retried up to twice with the same key, so
+nothing is sent twice. A 409 `concurrent_idempotent_requests` means an earlier try with that key is
+still being processed: the app waits and asks again with the same key. If the tries run out there,
+the rows say "Resend is still processing this batch; it may have been sent." That is not a
+permanent failure. Check the email log in Resend before you send to those rows again.
+
+A quota error (`daily_quota_exceeded` or `monthly_quota_exceeded`) is not retried; the rows say
+which quota was reached. A 422 or a 400 `validation_error` is a permanent refusal. When Resend
+accepts a batch but returns a different number of ids than messages sent, no id is guessed: the
+rows say the answer could not be matched.
+
+**Suppressions.** Suppression sync with Resend is not built yet. The CRM's list is the source of
+truth and is checked before any message reaches Resend. Webhooks keep it current: bounces,
+complaints and `email.suppressed` events (recorded as hard bounces). Settings → Deliverability's
+**Sync from \<provider\>** has nothing to read for Resend. Resend now has a public Suppressions
+API; two-way sync is a planned follow-up.
+
+**Limits.**
+
+- 100 messages per API call, so a large broadcast makes five times as many calls as with Postmark.
+- A Worker has a limit on outgoing requests per invocation (lower on the free plan). Send very
+  large lists as a scheduled send.
+- Resend's default rate limit is 10 requests per second per team.
+- Opens from Resend carry no mail client, so the app can't tell Apple Mail privacy opens apart
+  there. Use **By the CRM** tracking if that matters to you.
 
 **Tracking.** Open and click tracking in Resend are settings on each domain (Resend → Domains → your
 domain → Configuration). Turn them on if Resend should track, or off if the CRM should (see
@@ -156,7 +190,7 @@ setting disagree.
 **Unsubscribe headers.** The app sends its own `List-Unsubscribe` and `List-Unsubscribe-Post` headers
 in each message's `headers`.
 
-<!-- confirm: Resend's docs show a custom List-Unsubscribe header but no List-Unsubscribe-Post example. Check both survive to the delivered message. -->
+<!-- confirm: Resend passes custom headers through. Delivery of List-Unsubscribe-Post to the inbox has not been checked on a live send. -->
 
 ## Amazon SES
 
@@ -493,12 +527,12 @@ to go back to `POSTMARK_TOKEN`. Only when nothing is saved does the Worker secre
 
 | Name | Kind | Provider | What it is |
 | --- | --- | --- | --- |
-| `MAIL_PROVIDER` | var | all | `postmark` (default), `resend`, `ses` or `smtp`. The choice saved in Settings → Sending wins. A provider whose adapter isn't in this version yet is ignored (Postmark is used). |
+| `MAIL_PROVIDER` | var | all | `postmark` (default), `resend`, `ses` or `smtp`. The choice saved in Settings → Sending wins. A provider whose adapter isn't in this version yet (SES, SMTP) is ignored (Postmark is used). |
 | `MAIL_TRACKING` | var | Postmark, Resend, SES | `provider` (default) or `crm`. SMTP always uses `crm`. |
 | `POSTMARK_FROM` | var | all | Fallback default From address, when Settings → General has none. Name unchanged. |
 | `POSTMARK_TOKEN`, `POSTMARK_STREAM`, `POSTMARK_STREAM_TX`, `POSTMARK_ACCOUNT_TOKEN`, `WEBHOOK_KEY` | as today | Postmark | Unchanged. Only required while Postmark is the provider. |
-| `RESEND_API_KEY` | secret | Resend | The API key |
-| `RESEND_WEBHOOK_SECRET` | secret | Resend | The webhook signing secret, `whsec_…` |
+| `RESEND_API_KEY` | secret | Resend | The API key. A key saved in Settings → Sending wins; one that can't be read stops sending (it is never replaced by this secret). |
+| `RESEND_WEBHOOK_SECRET` | secret | Resend | The webhook signing secret, `whsec_…`. Read whatever the active provider is, so late Resend events still count after a switch. |
 | `AWS_SES_ACCESS_KEY_ID` | secret | SES | IAM access key id |
 | `AWS_SES_SECRET_ACCESS_KEY` | secret | SES | IAM secret access key |
 | `AWS_SES_REGION` | var | SES | For example `us-east-1` |
@@ -519,7 +553,8 @@ The full list with a comment per name is `.dev.vars.reference`.
 
 | Symptom | Cause and fix |
 | --- | --- |
-| Test connection: Resend "restricted" or 401 on domains | The key has sending access only. Sending works; domain status and suppression sync need a full-access key. |
+| Test connection: Resend says "sending access only" (401 `restricted_api_key` on domains) | The key has sending access only. Sending works; domain status needs a full-access key. |
+| Test connection: "Resend rejected the key." | The key is wrong, deleted or not active (Resend answers 403, or 400 "API key is invalid"). Create a new key in Resend → API Keys. |
 | Resend webhook requests get 401 | The signing secret in Settings is wrong or from another webhook, or the Worker's clock check failed because the request was replayed late. Copy the secret again from the webhook's page. |
 | SNS subscription stays "Pending confirmation" | The topic ARN wasn't saved in Settings → Sending before the subscription was made, or it names another topic. Fix it, then choose **Request confirmation** on the subscription in SNS. |
 | SES: "Email address is not verified" | The account is still in the sandbox, or the From domain is verified in a different region from `AWS_SES_REGION`. |

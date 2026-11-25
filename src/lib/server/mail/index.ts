@@ -2,6 +2,7 @@
 // docs/sending-providers.md for the spec.
 
 import { postmarkProvider } from './postmark';
+import { resendProvider } from './resend';
 import { resolveMailCredentials, type MailCredentials } from './config';
 import type { MailProvider, TrackingMode } from './provider';
 
@@ -21,21 +22,51 @@ export {
 	type PostmarkResult
 } from './postmark';
 export {
+	credentialError,
 	resolveMailCredentials,
 	resolvePostmarkCreds,
 	type MailCredentials
 } from './config';
+export {
+	fromResendBatch,
+	mapResendEvent,
+	parseResendWebhook,
+	resendCheckRows,
+	resendDomainStatus,
+	resendProvider,
+	svixSignature,
+	toResendEmail,
+	verifySvix,
+	RESEND_MAX_BATCH,
+	type ResendEmail,
+	type ResendMapped
+} from './resend';
 
 /** The Worker env, or any env-shaped object (tests, callers' own env types). */
 type AnyEnv = unknown;
 
 /**
  * The provider for resolved credentials, or null when the active provider isn't configured
- * (Postmark: no server token). `env` is the Worker's environment, for values a provider reads
+ * (Postmark: no server token; Resend: no API key). `env` is the Worker's environment, for values a provider reads
  * that Settings doesn't hold.
  */
 export function providerFor(_env: AnyEnv, config: MailCredentials): MailProvider | null {
 	switch (config.provider) {
+		case 'resend': {
+			// #702. The stream names are the ones callers still pass (Postmark's), so a caller that
+			// names the transactional stream gets the `transactional` tag.
+			const rs = config.resend;
+			if (!rs?.apiKey) return null;
+			return withTracking(
+				resendProvider({
+					apiKey: rs.apiKey,
+					broadcast: config.postmark.stream,
+					transactional: config.postmark.txStream,
+					webhookSecret: rs.webhookSecret
+				}),
+				config
+			);
+		}
 		case 'postmark':
 		default: {
 			const pm = config.postmark;

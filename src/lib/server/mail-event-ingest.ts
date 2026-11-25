@@ -34,6 +34,8 @@ export async function ingestMailEvent(
 		label: string;
 		/** Extra words for the failure log, e.g. `RecordType Bounce`. Never an address. */
 		context?: string;
+		/** #702: the provider named in the unsubscribe audit row (`via <name>`). Default Postmark. */
+		via?: string;
 	}
 ): Promise<{ duplicate: boolean; eventId?: number }> {
 	const { payload, type, messageId, email, recipient } = input;
@@ -76,7 +78,7 @@ export async function ingestMailEvent(
 
 	const step: StepRef = { name: 'start' };
 	try {
-		await processEvent(db, { payload, type, storedType, email, recipient, eventId }, step);
+		await processEvent(db, { payload, type, storedType, email, recipient, eventId, via: input.via }, step);
 		step.name = 'mark processed';
 		await db.prepare("UPDATE events SET processed_at = datetime('now') WHERE id = ?").bind(eventId).run();
 	} catch (e) {
@@ -103,6 +105,7 @@ export async function processEvent(
 		email: string | null;
 		recipient: EventRecipient | null;
 		eventId: number;
+		via?: string;
 	},
 	step: StepRef = { name: 'start' }
 ): Promise<void> {
@@ -210,19 +213,20 @@ export async function processEvent(
 					? 'HardBounce'
 					: String(payload.SuppressionReason ?? 'Unsubscribed via email client');
 		const campaignId = recipient?.campaign_id ?? null;
+		const detail = `via ${ctx.via || 'Postmark'}`;
 		const [flipped, inserted] = await db.batch<{ id: number }>([
 			db.prepare('UPDATE contacts SET subscribed = 0 WHERE email = ? AND subscribed = 1 RETURNING id').bind(email.toLowerCase()),
 			db
 				.prepare(
 					`INSERT INTO unsubscribes (contact_id, campaign_id, email, reason, detail)
-					 SELECT ?, ?, ?, ?, 'via Postmark'
+					 SELECT ?, ?, ?, ?, ?
 					 WHERE NOT EXISTS (
 					   SELECT 1 FROM unsubscribes
-					   WHERE email = ? AND campaign_id IS ? AND reason = ? AND detail = 'via Postmark'
+					   WHERE email = ? AND campaign_id IS ? AND reason = ? AND detail = ?
 					 )
 					 RETURNING id`
 				)
-				.bind(recipient?.contact_id ?? null, campaignId, email.toLowerCase(), reason, email.toLowerCase(), campaignId, reason)
+				.bind(recipient?.contact_id ?? null, campaignId, email.toLowerCase(), reason, detail, email.toLowerCase(), campaignId, reason, detail)
 		]);
 		const added = inserted.results.length > 0;
 

@@ -18,7 +18,7 @@ import { sha256Hex } from './api-keys';
 import { b64urlEncode } from './token';
 import { credentialStamp, hashPassword, passwordPolicyError } from './password';
 import { sendCampaignEmail } from './send';
-import { mailSetup } from './mail';
+import { credentialError, mailSetup } from './mail';
 import { ACCOUNT_MAIL_KIND } from './system-mail';
 import { emailDocument } from './email';
 import { getSettings } from './settings';
@@ -321,7 +321,7 @@ export async function sendAccountEmail(
 	opts: SendOpts = {}
 ): Promise<{ ok: true } | { ok: false; error: string }> {
 	const { provider: mail, creds } = await mailSetup(db, env);
-	if (!mail) return { ok: false, error: creds.postmark.tokenError ?? 'Email isn’t set up (POSTMARK_TOKEN).' };
+	if (!mail) return { ok: false, error: credentialError(creds) ?? 'Email isn’t set up (POSTMARK_TOKEN).' };
 	const from = (await getSettings(db)).default_from?.trim() || env.POSTMARK_FROM || '';
 	if (!from) return { ok: false, error: 'No From address (Settings → Default From or POSTMARK_FROM).' };
 	const baseUrl = opts.baseUrl ?? (await publicBaseUrl(db, env));

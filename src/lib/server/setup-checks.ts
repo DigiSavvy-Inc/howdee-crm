@@ -11,7 +11,7 @@
 import { isEmail } from '$lib/csv';
 import { secretRow, ZOHO_ORG_KEY, ZOHO_PROVIDER } from './integrations/secrets';
 import { ANTHROPIC_PROVIDER, OPENAI_SECRET_PROVIDER } from './ai/key';
-import { mailSetup, postmarkCheckRows, webhookMatches } from './mail';
+import { mailSetup, postmarkCheckRows, resendCheckRows, webhookMatches } from './mail';
 import { resolveMailCredentials } from './mail/config';
 import { CLOCK_KEY, SENDS_SKIPPED_KEY, SKIP_KEY, TICK_SKIPPED_NO_PUBLIC_URL, TICK_SKIPPED_NO_SENDING } from './internal-tick';
 import { sendingUnconfigured } from './db';
@@ -270,6 +270,14 @@ async function setupHoldsCheck(db: D1Database): Promise<SetupCheck | null> {
  *  that can't be read is a problem, never "set": sending is off then (no env fallback). */
 async function providerTokenCheck(db: D1Database, env: AnyEnv): Promise<SetupCheck> {
 	const creds = await resolveMailCredentials(db, env);
+	if (creds.provider === 'resend') {
+		// #702: Resend's API key, same rules (Settings first, unreadable = a problem).
+		const rbase = { id: 'resend_api_key', group: 'required' as const, label: 'Resend API key', href: '/settings/sending' };
+		const rfrom = creds.resend.apiKeyFrom;
+		if (rfrom === 'none') return { ...rbase, state: 'attention', detail: 'Not set.', fix: 'Paste it in Settings → Sending, or run `npx wrangler secret put RESEND_API_KEY`.' };
+		if (rfrom === 'unreadable') return { ...rbase, state: 'attention', detail: creds.resend.apiKeyError ?? 'Can’t be read.', fix: UNREADABLE_RESEND_FIX };
+		return { ...rbase, state: 'ready', detail: rfrom === 'app' ? 'Set in Settings → Sending.' : 'Set.' };
+	}
 	const from = creds.postmark.tokenFrom;
 	const base = { id: 'postmark_token', group: 'required' as const, label: 'Postmark server token', href: '/settings/sending' };
 	if (from === 'none')
@@ -277,6 +285,9 @@ async function providerTokenCheck(db: D1Database, env: AnyEnv): Promise<SetupChe
 	if (from === 'unreadable') return { ...base, state: 'attention', detail: creds.postmark.tokenError ?? 'Can’t be read.', fix: UNREADABLE_TOKEN_FIX };
 	return { ...base, state: 'ready', detail: from === 'app' ? 'Set in Settings → Sending.' : 'Set.' };
 }
+
+const UNREADABLE_RESEND_FIX =
+	'Set MAIL_TOKEN_KEY back to the key the Resend key was saved with, or save the key again in Settings → Sending (Clear there falls back to RESEND_API_KEY).';
 
 const UNREADABLE_TOKEN_FIX =
 	'Set MAIL_TOKEN_KEY back to the key the token was saved with, or save the token again in Settings → Sending (Clear token there falls back to POSTMARK_TOKEN).';
@@ -331,7 +342,13 @@ export async function postmarkChecks(env: AnyEnv, fetchFn: typeof fetch = fetch)
 export async function providerChecks(db: D1Database, env: AnyEnv, fetchFn: typeof fetch = fetch): Promise<SetupCheck[]> {
 	const { provider, creds } = await mailSetup(db, env);
 	if (provider) return (await provider.check(fetchFn)).rows;
-	// Not configured: the provider's own "not set" rows (Postmark is the only adapter so far).
+	if (creds.provider === 'resend') {
+		// #702: Resend's own "not set" rows; an unreadable saved key says so.
+		const rows = await resendCheckRows({ apiKey: '', webhookSecret: creds.resend.webhookSecret }, fetchFn);
+		const bad = creds.resend.apiKeyError;
+		return bad ? rows.map((r) => (r.id === 'resend_api_key' ? { ...r, detail: bad, fix: UNREADABLE_RESEND_FIX } : r)) : rows;
+	}
+	// Not configured: the provider's own "not set" rows.
 	const rows = await postmarkCheckRows({ token: '', broadcast: creds.postmark.stream, transactional: creds.postmark.txStream, webhookKey: creds.postmark.webhookKey }, fetchFn);
 	const unreadable = creds.postmark.tokenError;
 	if (!unreadable) return rows;
@@ -391,7 +408,7 @@ export async function runSetupChecks(db: D1Database, env: AnyEnv, fetchFn: typeo
 	const [local, pm, opt] = await Promise.all([localRequiredChecks(db, env), providerChecks(db, env, fetchFn), optionalChecks(db, env)]);
 	// The verified token row (and the streams row after it) replace the local "is it set" row.
 	const verified = pm.filter((c) => c.group === 'required');
-	const required = local.flatMap((c) => (c.id === 'postmark_token' ? verified : [c]));
+	const required = local.flatMap((c) => (c.id === 'postmark_token' || c.id === 'resend_api_key' ? verified : [c]));
 	const checks = [...required, ...pm.filter((c) => c.group !== 'required'), ...opt];
 	return { checks, attention: checks.filter((c) => c.state === 'attention').length };
 }

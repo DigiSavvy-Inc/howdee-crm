@@ -20,6 +20,12 @@ POSTMARK_TOKEN=
 # Optional (#304) — Postmark account API token; Deliverability reads DKIM / Return-Path status
 # from the Domains API with it. Unset = no Domains API request; the DKIM row says to set it (#605).
 POSTMARK_ACCOUNT_TOKEN=
+# Optional (#702) — Resend API key (re_…), the fallback when none is saved in Settings → Sending.
+# Only read while Resend is the sending provider. Full access also shows domain status.
+RESEND_API_KEY=
+# Optional (#702) — Resend webhook signing secret (whsec_…) for /api/webhook/resend. Unset = that
+# webhook answers 401 (no Resend bounces, complaints, opens or clicks).
+RESEND_WEBHOOK_SECRET=
 # Required (#542) — the Postmark webhook returns 401 without it. For local webhook testing set
 # any value and pass it as ?key=<value> on /api/webhook.
 WEBHOOK_KEY=
