@@ -18,7 +18,7 @@
 	"devDependencies": {
 		"@cloudflare/vitest-pool-workers": "^0.16.14",
 		"@sveltejs/adapter-cloudflare": "^7.2.8",
-		"@sveltejs/kit": "^2.70.4",
+		"@sveltejs/kit": "^3.4.0",
 		"@sveltejs/vite-plugin-svelte": "^7.0.0",
 		"@types/papaparse": "^5.5.2",
 		"svelte": "^5.55.2",
