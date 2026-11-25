@@ -2,6 +2,7 @@
 // fallback (break-glass, only while APP_PASSWORD is set) signs in as the first active admin.
 
 import { parseNavLayout, type NavLayout } from '$lib/nav-layout';
+import { credentialStamp } from './password';
 
 export type UserRole = 'admin' | 'member';
 
@@ -35,6 +36,12 @@ export type SessionUser = Pick<UserRow, 'id' | 'github_login' | 'name' | 'avatar
 	passwordSetAt: string | null;
 	/** #211: every route but /account/password is blocked until this clears. */
 	mustChangePassword: boolean;
+	/**
+	 * #746: sessions issued before this stamp (same format as passwordSetAt) are refused.
+	 * Moved forward on sign-out, disable, enable and role change; null = no extra limit
+	 * (also before migration 0140 is applied).
+	 */
+	sessionsValidAfter?: string | null;
 };
 
 // Columns added by later migrations (0046 nav_layout, 0064 passwords). A Worker that ships
@@ -130,15 +137,52 @@ async function allUserRows(db: D1Database, tail: string, bindings: SqlBind[]): P
 	}
 }
 
+/** #746: SQLite's missing-column error for `sessions_valid_after` (migration 0140). */
+function isMissingSessionsColumn(err: unknown): boolean {
+	const pattern = /no such column:\s*(?:[\w"]+\.)?sessions_valid_after\b/i;
+	const seen = new Set<unknown>();
+	let current: unknown = err;
+	while (current != null && !seen.has(current)) {
+		if (typeof current === 'string') return pattern.test(current);
+		if (typeof current !== 'object') return false;
+		seen.add(current);
+		const message = current instanceof Error ? current.message : '';
+		if (pattern.test(message)) return true;
+		if (!(current instanceof Error)) return false;
+		current = current.cause;
+	}
+	return false;
+}
+
+type SessionValidCol = { sessions_valid_after?: string | null };
+
+/**
+ * The session row plus `sessions_valid_after` (#746). Before migration 0140 the column is
+ * missing: retry without it (no extra limit) rather than fail every signed-in request. The
+ * other optional columns keep their own fallback inside `firstUserRow`.
+ */
+async function sessionLookupRow(
+	db: D1Database,
+	id: number
+): Promise<(SessionRow & OptionalCols & SessionValidCol) | null> {
+	const tail = 'WHERE id = ? AND disabled_at IS NULL';
+	try {
+		return await firstUserRow<SessionRow & SessionValidCol>(
+			db,
+			`${SESSION_COLUMNS}, sessions_valid_after`,
+			SESSION_COLUMNS_WITHOUT_NAV,
+			tail,
+			[id]
+		);
+	} catch (err) {
+		if (!isMissingSessionsColumn(err)) throw err;
+		return await firstUserRow<SessionRow>(db, SESSION_COLUMNS, SESSION_COLUMNS_WITHOUT_NAV, tail, [id]);
+	}
+}
+
 /** Active user by id, trimmed to the fields a session needs. */
 export async function findActiveUserById(db: D1Database, id: number): Promise<SessionUser | null> {
-	const row = await firstUserRow<SessionRow>(
-		db,
-		SESSION_COLUMNS,
-		SESSION_COLUMNS_WITHOUT_NAV,
-		'WHERE id = ? AND disabled_at IS NULL',
-		[id]
-	);
+	const row: (SessionRow & OptionalCols & SessionValidCol) | null = await sessionLookupRow(db, id);
 	if (!row) return null;
 	const { tour_dismissed_at, nav_layout, password_set_at, must_change_password } = row;
 	return {
@@ -150,7 +194,8 @@ export async function findActiveUserById(db: D1Database, id: number): Promise<Se
 		tourSeen: !!tour_dismissed_at,
 		navLayout: parseNavLayout(nav_layout),
 		passwordSetAt: password_set_at ?? null,
-		mustChangePassword: !!must_change_password
+		mustChangePassword: !!must_change_password,
+		sessionsValidAfter: row.sessions_valid_after ?? null
 	};
 }
 
@@ -305,16 +350,58 @@ export async function createUser(db: D1Database, login: string, role: UserRole):
 	return row;
 }
 
-export async function setUserRole(db: D1Database, id: number, role: UserRole): Promise<void> {
-	await db.prepare(`UPDATE users SET role = ? WHERE id = ?`).bind(role, id).run();
+/**
+ * #746: end every session of this user that exists right now (all devices). A session issued
+ * in the same millisecond as the stamp, or later, still counts (the check is "issued before"),
+ * so signing in again straight away works. Before migration 0140 the column is missing and
+ * this does nothing (returns false) instead of failing the action that called it.
+ */
+export async function endUserSessions(db: D1Database, id: number, stamp = credentialStamp()): Promise<boolean> {
+	try {
+		await db.prepare(`UPDATE users SET sessions_valid_after = ? WHERE id = ?`).bind(stamp, id).run();
+		return true;
+	} catch (err) {
+		if (isMissingSessionsColumn(err)) return false;
+		throw err;
+	}
 }
 
-export async function setUserDisabled(db: D1Database, id: number, disabled: boolean): Promise<void> {
-	if (disabled) {
-		await db.prepare(`UPDATE users SET disabled_at = datetime('now') WHERE id = ?`).bind(id).run();
-	} else {
-		await db.prepare(`UPDATE users SET disabled_at = NULL WHERE id = ?`).bind(id).run();
+/**
+ * #746: apply `assignments` to one user and end their current sessions in the same UPDATE, so
+ * the change and the stamp land together or not at all. Before migration 0140 the stamp column
+ * is missing: the change is applied on its own.
+ */
+async function updateEndingSessions(
+	db: D1Database,
+	id: number,
+	assignments: string,
+	values: unknown[] = []
+): Promise<void> {
+	try {
+		await db
+			.prepare(`UPDATE users SET ${assignments}, sessions_valid_after = ? WHERE id = ?`)
+			.bind(...values, credentialStamp(), id)
+			.run();
+	} catch (err) {
+		if (!isMissingSessionsColumn(err)) throw err;
+		await db
+			.prepare(`UPDATE users SET ${assignments} WHERE id = ?`)
+			.bind(...values, id)
+			.run();
 	}
+}
+
+/** Changing the role ends the user's current sessions (#746). */
+export async function setUserRole(db: D1Database, id: number, role: UserRole): Promise<void> {
+	await updateEndingSessions(db, id, 'role = ?', [role]);
+}
+
+/**
+ * Disabling and enabling both end the user's current sessions (#746), so a session from
+ * before a disable never comes back when the user is enabled again.
+ */
+export async function setUserDisabled(db: D1Database, id: number, disabled: boolean): Promise<void> {
+	await updateEndingSessions(db, id, disabled ? `disabled_at = datetime('now')` : 'disabled_at = NULL');
 }
 
 export async function deleteUser(db: D1Database, id: number): Promise<void> {

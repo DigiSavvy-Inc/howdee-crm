@@ -247,7 +247,8 @@ export async function runHygieneBackfill(
 		const fresh = new Set<string>();
 		const take: { id: number; hygiene: Hygiene }[] = [];
 		for (const r of rows) {
-			const h = checkAddressSync(r.email);
+			// #744: an existing contact's address is checked with the rule it was stored under.
+			const h = checkAddressSync(r.email, { stored: true });
 			const d = emailDomain(h.email);
 			const needs = h.syntax && !h.disposable && !cachedMx(d, opts.now) && !fresh.has(d);
 			if (needs) {

@@ -1,7 +1,7 @@
 import type { RequestHandler } from '@sveltejs/kit';
 import { getDB } from '$lib/server/db';
 import { json } from '@sveltejs/kit';
-import { isEmail } from '$lib/csv';
+import { isEmail, isStoredEmail } from '$lib/csv';
 import { requireKey, apiData, apiError, loadContact } from '$lib/server/api-v1';
 import {
 	applyContactFields,
@@ -79,7 +79,8 @@ export const PATCH: RequestHandler = async (event) => {
 	// Rename via `email` — collision-checked against the UNIQUE email.
 	if (Object.prototype.hasOwnProperty.call(body, 'email')) {
 		const ne = String(body.email ?? '').trim().toLowerCase();
-		if (!isEmail(ne)) return apiError(400, 'Invalid email.');
+		// #744: an unchanged stored address is accepted; a changed one needs the strict check.
+		if (!isEmail(ne) && !(ne === existing.email && isStoredEmail(ne))) return apiError(400, 'Invalid email.');
 		if (ne !== existing.email) {
 			const clash = await db.prepare('SELECT id FROM contacts WHERE email = ? AND id != ?').bind(ne, id).first<{ id: number }>();
 			if (clash) return json({ error: 'email already in use', conflict_id: clash.id }, { status: 409 });

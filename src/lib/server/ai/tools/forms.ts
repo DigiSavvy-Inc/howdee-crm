@@ -9,7 +9,7 @@ import { formCounts, formOutline } from './form-input';
 import { ToolInputError, intArg, strArg, type Tool, type ToolContext } from './types';
 
 const FORM_STATUSES = ['draft', 'published', 'archived'];
-const SUBMISSION_STATUSES = ['ok', 'hidden', 'added', 'updated', 'anonymous', 'spam', 'rejected'];
+const SUBMISSION_STATUSES = ['ok', 'hidden', 'held', 'added', 'updated', 'anonymous', 'spam', 'rejected'];
 const SUBMISSIONS_MAX = 200;
 /** Question types `summarize` counts by option. */
 const COUNTED: FormField['type'][] = ['select', 'radio', 'checkboxes', 'rating'];
@@ -144,7 +144,7 @@ export const formTools: Tool[] = [
 		name: 'get_form_submissions',
 		tier: 'read',
 		description:
-			'A form\'s submissions, newest first (≤ 200): when, status, email, contact and the answers as "key: value" lines. Filters: since (YYYY-MM-DD or ISO date-time, after it), status (ok = added / updated / anonymous, the default; hidden = spam + rejected; or one status), search (email or answer text contains). summarize: true adds counts by option for the dropdown, multiple-choice, checkbox-list and rating questions over every matching submission (up to 5,000).',
+			'A form\'s submissions, newest first (≤ 200): when, status, email, contact and the answers as "key: value" lines. Filters: since (YYYY-MM-DD or ISO date-time, after it), status (ok = added / updated / anonymous, the default; hidden = spam + rejected; held = held by the daily send limit on the form, the only filter that lists them; or one status), search (email or answer text contains). summarize: true adds counts by option for the dropdown, multiple-choice, checkbox-list and rating questions over every matching submission (up to 5,000).',
 		input_schema: {
 			type: 'object',
 			properties: {
@@ -186,7 +186,9 @@ export const formTools: Tool[] = [
 					contact_id: r.contact_id,
 					contact: r.contact_name,
 					contact_url: r.contact_id ? `${ctx.baseUrl}/contacts/${r.contact_id}` : null,
-					answers: answerLines(f.spec, r.answers)
+					answers: answerLines(f.spec, r.answers),
+					// #744: a held row is not an ordinary anonymous submission (nothing ran for it yet).
+					...(r.held ? { held: true } : {})
 				})),
 				...(summarize ? { counted: res.rows.length, summary: optionCounts(f.spec, res.rows) } : {})
 			};

@@ -64,15 +64,76 @@ export type FormListRow = {
 /** Every form (archived only with `archived: true`), newest edit first, with counts. */
 export async function listForms(db: D1Database, opts: { archived?: boolean } = {}): Promise<FormListRow[]> {
 	const where = opts.archived ? "f.status = 'archived'" : "f.status != 'archived'";
-	const rows = await db
-		.prepare(
-			`SELECT f.id, f.name, f.slug, f.status, f.version, f.updated_at, f.published_at,
-			        (SELECT COUNT(*) FROM form_submissions s WHERE s.form_id = f.id AND s.status IN ('added', 'updated', 'anonymous')) AS submissions,
-			        (SELECT MAX(created_at) FROM form_submissions s WHERE s.form_id = f.id AND s.status IN ('added', 'updated', 'anonymous')) AS last_submission_at
-			 FROM forms f WHERE ${where} ORDER BY f.updated_at DESC, f.id DESC`
-		)
-		.all<FormListRow>();
-	return rows.results;
+	// #744: a held submission (daily send limit) isn't counted until it is released.
+	const run = (notHeld: string) =>
+		db
+			.prepare(
+				`SELECT f.id, f.name, f.slug, f.status, f.version, f.updated_at, f.published_at,
+				        (SELECT COUNT(*) FROM form_submissions s WHERE s.form_id = f.id AND s.status IN ('added', 'updated', 'anonymous')${notHeld}) AS submissions,
+				        (SELECT MAX(created_at) FROM form_submissions s WHERE s.form_id = f.id AND s.status IN ('added', 'updated', 'anonymous')${notHeld}) AS last_submission_at
+				 FROM forms f WHERE ${where} ORDER BY f.updated_at DESC, f.id DESC`
+			)
+			.all<FormListRow>();
+	try {
+		return (await run(` AND NOT ${heldSql('s.')}`)).results;
+	} catch (e) {
+		// Before migration 0139 there is no `held_at` and so no held row.
+		if (!isPreMigrationHeldError(e)) throw e;
+		return (await run('')).results;
+	}
+}
+
+/**
+ * #744: true only for SQLite's missing-column error on a column migration 0139 adds to
+ * `form_submissions` (`held_at`, `released_at`, `released_by`): "no such column: …" on a read or
+ * an update, "table … has no column named …" on an insert. Any other failure, including another
+ * missing column, stays a failure. Same shape as `isPreMigrationKeyError` in webhook-keys.ts.
+ */
+export function isPreMigrationHeldError(err: unknown): boolean {
+	const pattern = /(?:no such column:\s*(?:[\w"]+\.)?|has no column named\s+)"?(?:held_at|released_at|released_by)\b/i;
+	const seen = new Set<unknown>();
+	let current: unknown = err;
+	while (current != null && !seen.has(current)) {
+		if (typeof current === 'string') return pattern.test(current);
+		if (typeof current !== 'object') return false;
+		seen.add(current);
+		const message = current instanceof Error ? current.message : '';
+		if (pattern.test(message)) return true;
+		if (!(current instanceof Error)) return false;
+		current = current.cause;
+	}
+	return false;
+}
+
+/** #744: a held submission's `detail` starts with this. */
+export const HELD_DETAIL = 'held: daily send limit reached';
+
+/** #744: how old a release's claim must be before a row it left in the held shape counts as stranded. */
+export const RELEASE_STALE_MINUTES = 10;
+
+/** The held shape a release leaves behind when it claimed the row and could not put it back. */
+function strandedShape(a: string): string {
+	return `${a}released_at IS NOT NULL AND ${a}contact_id IS NULL AND IFNULL(${a}status, '') = 'anonymous' AND substr(IFNULL(${a}detail, ''), 1, ${HELD_DETAIL.length}) = '${HELD_DETAIL}'`;
+}
+
+/**
+ * #744: SQL that is true for a held submission (`a` = the table alias with its dot, or ''). Held =
+ * `held_at` set, or a row a release claimed (`held_at` cleared, `released_at` set) and could not put
+ * back: it still has the held shape (status `anonymous`, no contact, `detail` starting with
+ * `HELD_DETAIL`). A release that finishes always rewrites `detail` to start with "released", so a
+ * released row never matches. Every term is NULL-safe, so `NOT (…)` is safe too. A release still
+ * running matches as well (it is not an ordinary submission until it finishes).
+ */
+export function heldSql(a = ''): string {
+	return `(${a}held_at IS NOT NULL OR (${strandedShape(a)}))`;
+}
+
+/**
+ * #744: the held rows a release may claim: `heldSql`, except that a row in the held shape whose
+ * claim is newer than `RELEASE_STALE_MINUTES` is left alone (a release may still be running on it).
+ */
+export function releasableHeldSql(a = ''): string {
+	return `(${a}held_at IS NOT NULL OR (${strandedShape(a)} AND ${a}released_at < datetime('now', '-${RELEASE_STALE_MINUTES} minutes')))`;
 }
 
 /** `base`, else `base-2`, `base-3`… — the first slug no other form uses. */
@@ -228,32 +289,62 @@ export type NewSubmission = {
 	user_agent?: string | null;
 	/** #514: ids of the outcomes that fired. */
 	outcomes?: string[] | null;
+	/** #744: over the form's daily send cap: stored with `held_at` until an admin releases it. */
+	held?: boolean;
 };
 
+/**
+ * Store one submission row. #744: before migration 0139 (no `held_at` column) the row is stored
+ * without it; the daily send cap is off there (`heldColumnsReady`), so nothing asks to hold one.
+ */
 export async function recordSubmission(db: D1Database, s: NewSubmission): Promise<number> {
 	const utm = s.utm && Object.keys(s.utm).length ? JSON.stringify(s.utm) : null;
-	const row = await db
-		.prepare(
-			`INSERT INTO form_submissions (form_id, form_version, contact_id, email, status, detail, answers, utm, referrer, page_url, ip_hash, user_agent, outcomes)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
-		)
-		.bind(
-			s.form_id,
-			s.form_version,
-			s.contact_id,
-			s.email,
-			s.status,
-			s.detail ? String(s.detail).slice(0, 300) : null,
-			JSON.stringify(s.answers ?? {}),
-			utm,
-			s.referrer ? String(s.referrer).slice(0, 500) : null,
-			s.page_url ? String(s.page_url).slice(0, 500) : null,
-			s.ip_hash ?? null,
-			s.user_agent ? String(s.user_agent).slice(0, 300) : null,
-			s.outcomes ? JSON.stringify(s.outcomes.slice(0, 50)) : null
-		)
-		.first<{ id: number }>();
-	return row!.id;
+	const values = [
+		s.form_id,
+		s.form_version,
+		s.contact_id,
+		s.email,
+		s.status,
+		s.detail ? String(s.detail).slice(0, 300) : null,
+		JSON.stringify(s.answers ?? {}),
+		utm,
+		s.referrer ? String(s.referrer).slice(0, 500) : null,
+		s.page_url ? String(s.page_url).slice(0, 500) : null,
+		s.ip_hash ?? null,
+		s.user_agent ? String(s.user_agent).slice(0, 300) : null,
+		s.outcomes ? JSON.stringify(s.outcomes.slice(0, 50)) : null
+	];
+	const cols = 'form_id, form_version, contact_id, email, status, detail, answers, utm, referrer, page_url, ip_hash, user_agent, outcomes';
+	const marks = values.map(() => '?').join(', ');
+	try {
+		const row = await db
+			.prepare(`INSERT INTO form_submissions (${cols}, held_at) VALUES (${marks}, CASE WHEN ? THEN datetime('now') END) RETURNING id`)
+			.bind(...values, s.held ? 1 : 0)
+			.first<{ id: number }>();
+		return row!.id;
+	} catch (e) {
+		if (!isPreMigrationHeldError(e)) throw e;
+		if (s.held) console.error('form submission stored without held_at: migration 0139 is not applied');
+		const row = await db
+			.prepare(`INSERT INTO form_submissions (${cols}) VALUES (${marks}) RETURNING id`)
+			.bind(...values)
+			.first<{ id: number }>();
+		return row!.id;
+	}
+}
+
+/**
+ * #744: whether migration 0139's columns exist. False only on the missing-column error; any
+ * other failure is thrown.
+ */
+export async function heldColumnsReady(db: D1Database): Promise<boolean> {
+	try {
+		await db.prepare('SELECT held_at, released_at, released_by FROM form_submissions LIMIT 0').all();
+		return true;
+	} catch (e) {
+		if (isPreMigrationHeldError(e)) return false;
+		throw e;
+	}
 }
 
 export type SubmissionRow = {
@@ -272,11 +363,17 @@ export type SubmissionRow = {
 	contact_name: string | null;
 	/** #514: ids of the outcomes that fired; null on older rows. */
 	outcomes: string[] | null;
+	/** #744: set while the submission is held by the daily send cap. */
+	held_at: string | null;
+	released_at: string | null;
+	/** #744: held (`heldSql`), including a row a failed release could not put back. */
+	held: boolean;
 };
 
 export type SubmissionFilter = {
-	/** 'ok' (default) = added / updated / anonymous; 'hidden' = spam + rejected; or one status. */
-	status?: 'ok' | 'hidden' | SubmissionStatus;
+	/** 'ok' (default) = added / updated / anonymous, not held; 'hidden' = spam + rejected; 'held'
+	 *  = held by the daily send cap (#744); or one status. */
+	status?: 'ok' | 'hidden' | 'held' | SubmissionStatus;
 	/** YYYY-MM-DD, inclusive (UTC). */
 	from?: string | null;
 	to?: string | null;
@@ -293,7 +390,7 @@ const SUB_STATUSES: SubmissionStatus[] = ['added', 'updated', 'anonymous', 'spam
 export function parseSubmissionFilter(q: URLSearchParams): SubmissionFilter & { page: number } {
 	const status = q.get('status');
 	return {
-		status: status === 'hidden' || status === 'spam' || status === 'rejected' ? status : 'ok',
+		status: status === 'hidden' || status === 'spam' || status === 'rejected' || status === 'held' ? status : 'ok',
 		from: q.get('from') || null,
 		to: q.get('to') || null,
 		q: (q.get('q') ?? '').slice(0, 200) || null,
@@ -302,14 +399,22 @@ export function parseSubmissionFilter(q: URLSearchParams): SubmissionFilter & { 
 }
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-function submissionWhere(formId: number, f: SubmissionFilter): { sql: string; binds: unknown[] } {
+/**
+ * `held: false` = the database has no `held_at` yet (before migration 0139): no row is held, so
+ * the held clauses are left out and the `held` filter matches nothing.
+ */
+function submissionWhere(formId: number, f: SubmissionFilter, opts: { held?: boolean } = {}): { sql: string; binds: unknown[] } {
 	const parts = ['s.form_id = ?'];
 	const binds: unknown[] = [formId];
 	const st = f.status ?? 'ok';
-	if (st === 'ok') parts.push("s.status IN ('added', 'updated', 'anonymous')");
+	const heldCol = opts.held !== false;
+	// #744: a held row (status `anonymous`) is listed under `held` only.
+	const notHeld = heldCol ? ` AND NOT ${heldSql('s.')}` : '';
+	if (st === 'ok') parts.push(`s.status IN ('added', 'updated', 'anonymous')${notHeld}`);
+	else if (st === 'held') parts.push(heldCol ? heldSql('s.') : '0');
 	else if (st === 'hidden') parts.push("s.status IN ('spam', 'rejected')");
 	else if (SUB_STATUSES.includes(st)) {
-		parts.push('s.status = ?');
+		parts.push(`s.status = ?${st === 'anonymous' ? notHeld : ''}`);
 		binds.push(st);
 	}
 	if (f.from && DAY_RE.test(f.from)) {
@@ -334,7 +439,7 @@ function submissionWhere(formId: number, f: SubmissionFilter): { sql: string; bi
 }
 
 function parseSub(
-	r: Omit<SubmissionRow, 'answers' | 'utm' | 'outcomes'> & { answers: string; utm: string | null; outcomes: string | null }
+	r: Omit<SubmissionRow, 'answers' | 'utm' | 'outcomes' | 'held'> & { answers: string; utm: string | null; outcomes: string | null; held?: number | null }
 ): SubmissionRow {
 	let answers: Answers = {};
 	let utm: Record<string, string> | null = null;
@@ -355,7 +460,7 @@ function parseSub(
 	} catch {
 		utm = null;
 	}
-	return { ...r, answers, utm, outcomes };
+	return { ...r, answers, utm, outcomes, held: !!r.held };
 }
 
 export async function listSubmissions(
@@ -363,20 +468,32 @@ export async function listSubmissions(
 	formId: number,
 	f: SubmissionFilter = {}
 ): Promise<{ rows: SubmissionRow[]; total: number }> {
-	const w = submissionWhere(formId, f);
 	const limit = Math.max(1, Math.min(5000, Math.floor(f.limit ?? 50)));
 	const offset = Math.max(0, Math.floor(f.offset ?? 0));
-	const [rows, total] = await db.batch([
-		db
-			.prepare(
-				`SELECT s.id, s.form_id, s.form_version, s.contact_id, s.email, s.status, s.detail, s.answers, s.utm, s.referrer, s.page_url, s.created_at, s.outcomes,
-				        NULLIF(TRIM(COALESCE(c.name, TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, '')))), '') AS contact_name
-				 FROM form_submissions s LEFT JOIN contacts c ON c.id = s.contact_id
-				 WHERE ${w.sql} ORDER BY s.created_at DESC, s.id DESC LIMIT ? OFFSET ?`
-			)
-			.bind(...w.binds, limit, offset),
-		db.prepare(`SELECT COUNT(*) AS n FROM form_submissions s WHERE ${w.sql}`).bind(...w.binds)
-	]);
+	const run = (held: boolean) => {
+		const w = submissionWhere(formId, f, { held });
+		const heldCols = held ? `s.held_at, s.released_at, ${heldSql('s.')} AS held` : 'NULL AS held_at, NULL AS released_at, 0 AS held';
+		return db.batch([
+			db
+				.prepare(
+					`SELECT s.id, s.form_id, s.form_version, s.contact_id, s.email, s.status, s.detail, s.answers, s.utm, s.referrer, s.page_url, s.created_at, s.outcomes, ${heldCols},
+					        NULLIF(TRIM(COALESCE(c.name, TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, '')))), '') AS contact_name
+					 FROM form_submissions s LEFT JOIN contacts c ON c.id = s.contact_id
+					 WHERE ${w.sql} ORDER BY s.created_at DESC, s.id DESC LIMIT ? OFFSET ?`
+				)
+				.bind(...w.binds, limit, offset),
+			db.prepare(`SELECT COUNT(*) AS n FROM form_submissions s WHERE ${w.sql}`).bind(...w.binds)
+		]);
+	};
+	let rows: D1Result<unknown>;
+	let total: D1Result<unknown>;
+	try {
+		[rows, total] = await run(true);
+	} catch (e) {
+		// #744: before migration 0139 there is no `held_at` (and so no held row).
+		if (!isPreMigrationHeldError(e)) throw e;
+		[rows, total] = await run(false);
+	}
 	return {
 		rows: (rows.results as Parameters<typeof parseSub>[0][]).map(parseSub),
 		total: (total.results[0] as { n: number } | undefined)?.n ?? 0
@@ -494,4 +611,72 @@ export async function verifySubmissionId(secret: string, token: string | null | 
 		return null;
 	}
 	return timingSafeEqual(want, got) ? id : null;
+}
+
+/** #744: forms with submissions held by the daily send cap (the dashboard notice), newest first. */
+export async function heldSubmissionSummary(
+	db: D1Database
+): Promise<{ form_id: number; name: string; held: number; first_held_at: string; last_held_at: string }[]> {
+	try {
+		const res = await db
+			.prepare(
+				`SELECT s.form_id, f.name, COUNT(*) AS held,
+				        MIN(COALESCE(s.held_at, s.released_at, s.created_at)) AS first_held_at,
+				        MAX(COALESCE(s.held_at, s.released_at, s.created_at)) AS last_held_at
+				 FROM form_submissions s JOIN forms f ON f.id = s.form_id
+				 WHERE ${heldSql('s.')}
+				 GROUP BY s.form_id ORDER BY last_held_at DESC LIMIT 20`
+			)
+			.all<{ form_id: number; name: string; held: number; first_held_at: string; last_held_at: string }>();
+		return res.results;
+	} catch (e) {
+		if (isPreMigrationHeldError(e)) return [];
+		throw e;
+	}
+}
+
+/** #744: how many of a form's submissions are held (0 before migration 0139). */
+export async function heldCount(db: D1Database, formId: number): Promise<number> {
+	try {
+		const r = await db
+			.prepare(`SELECT COUNT(*) AS n FROM form_submissions WHERE form_id = ? AND ${heldSql()}`)
+			.bind(formId)
+			.first<{ n: number }>();
+		return r?.n ?? 0;
+	} catch (e) {
+		if (isPreMigrationHeldError(e)) return 0;
+		throw e;
+	}
+}
+
+/** Rows per DELETE in `discardHeld`. */
+export const DISCARD_CHUNK = 500;
+
+/**
+ * #744: delete a form's held submissions (only held rows a release may claim, only this form), in
+ * chunks of `DISCARD_CHUNK`. Nothing else changes (a row that says a confirmation email was sent
+ * keeps that email sent). Returns the count; 0 before migration 0139 (nothing is held there).
+ */
+export async function discardHeld(db: D1Database, formId: number): Promise<number> {
+	let deleted = 0;
+	// At most 200 chunks (100,000 rows) per call; the Submissions tab shows what is left.
+	for (let i = 0; i < 200; i++) {
+		let res: D1Result;
+		try {
+			res = await db
+				.prepare(
+					`DELETE FROM form_submissions WHERE id IN (
+					   SELECT id FROM form_submissions WHERE form_id = ? AND ${releasableHeldSql()} ORDER BY id LIMIT ?)`
+				)
+				.bind(formId, DISCARD_CHUNK)
+				.run();
+		} catch (e) {
+			if (isPreMigrationHeldError(e)) return deleted;
+			throw e;
+		}
+		const n = res.meta.changes ?? 0;
+		deleted += n;
+		if (n < DISCARD_CHUNK) break;
+	}
+	return deleted;
 }

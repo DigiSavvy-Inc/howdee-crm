@@ -2,10 +2,14 @@
 // (it runs on Workers). Spec + user docs: docs/sending-providers.md → Resend.
 //
 // - Sending: `POST /emails/batch`, up to 100 messages per call. Validation is strict: one invalid
-//   message fails the whole call, and `data[i]` matches message `i` only on a success. Each call
-//   has an `Idempotency-Key`, reused when a 429 / 5xx / dropped connection / 409
-//   `concurrent_idempotent_requests` is retried, so a retry can't send twice. Every request sends
-//   our `User-Agent` (Resend answers 403 without one).
+//   message fails the whole call, and `data[i]` matches message `i` only on a success. A call
+//   refused as a whole because of a recipient address (#745, `isRecipientRefusal`) is split in
+//   halves, breadth first, down to single messages, so only the refused message fails; bounded by
+//   `RESEND_SPLIT_MAX_CALLS`. A bad key or a problem with a shared field fails the call once. Each
+//   call has an `Idempotency-Key`, reused when a 429 / 5xx / dropped connection / 409
+//   `concurrent_idempotent_requests` is retried, so a retry can't send twice; a part gets its own
+//   key derived from the batch's key and its slice. Every request sends our `User-Agent` (Resend
+//   answers 403 without one).
 // - Streams: Resend has none. The message's stream kind goes out as a tag (`stream`), with the
 //   campaign and contact ids, and comes back on every webhook event.
 // - Events: `/api/webhook/resend` (Svix-signed). Each event is turned into the Postmark-shaped
@@ -42,6 +46,13 @@ const CHECK_TIMEOUT_MS = 8_000;
 const MAX_ATTEMPTS = 3;
 /** Longest wait honoured from a 429's `retry-after`, in ms (the request budget is shared). */
 const MAX_RETRY_WAIT_MS = 2_000;
+/** #745: calls allowed for one batch of up to 100 when a recipient refusal is split into parts
+ *  (the first call included; retries of one call don't count). Halving 100 takes 7 levels
+ *  (50, 25, 13, 7, 4, 2, 1). One refused message: 1 + 2 per level = 15 calls. Two refused
+ *  messages in different halves: 1 + 2 (level 1) + 4 for each of the 6 levels after it = 27
+ *  calls. 32 covers that with room to spare; a batch with more refused messages stops here instead
+ *  of using up the Worker's outgoing requests. */
+export const RESEND_SPLIT_MAX_CALLS = 32;
 /** Svix's replay window: a timestamp further than this from now is refused. */
 export const WEBHOOK_TOLERANCE_SECONDS = 5 * 60;
 
@@ -130,6 +141,28 @@ function errorText(status: number, body: unknown): { name: string; message: stri
 export const RESEND_STILL_PROCESSING_ERROR = 'Resend is still processing this batch; it may have been sent.';
 /** A success whose `data` doesn't line up with the messages sent: no id is guessed. */
 export const RESEND_UNMATCHED_ERROR = 'Resend accepted the batch, but its answer could not be matched to the messages; they may have been sent.';
+
+/** #745: a part of a refused batch that wasn't sent because the batch used up its call limit. Not
+ *  permanent: nothing was sent and the message itself may be fine. */
+export const RESEND_SPLIT_LIMIT_ERROR = 'Not sent: Resend refused this batch and the limit on resending its parts was reached.';
+
+/**
+ * #745: true when Resend's error message is about a recipient address field (`to`, `cc`, `bcc` or
+ * `reply_to`), so splitting the batch can isolate the message it is about. Written against
+ * Resend's wording "Invalid `to` field. The email address needs to follow the `email@example.com`
+ * format." and "The `to` field ..." (the same shape names `from`: "The `from` field is invalid.").
+ * The field name may be wrapped in backticks or quotes, any case, and must be followed by the word
+ * "field". A missing field ("Missing `to` field") is about the request, not one address: false. A
+ * message that isn't a readable string: false (never split on a guess).
+ */
+export function isRecipientRefusal(message: unknown): boolean {
+	if (typeof message !== 'string' || !message.trim()) return false;
+	if (/\bmissing\b/i.test(message)) return false;
+	return /(?:^|[^a-z0-9_])[`'"]?(?:to|cc|bcc|reply[_-]?to)[`'"]?\s+field\b/i.test(message);
+}
+
+/** The rows' error when Resend refused the API key on a send. */
+export const RESEND_REJECTED_KEY_ERROR = 'Resend rejected the API key';
 
 /** Retrying can't help: 422 (`missing_required_field` / `invalid_parameter`) and 400
  *  `validation_error` (a bad address or field fails the whole batch). 401 / 403 / 429 / 5xx are
@@ -559,7 +592,7 @@ export function resendProvider(opts: ResendProviderOptions): MailProvider {
 			if (!messages.length) return [];
 			const out: SendResult[] = [];
 			for (let start = 0; start < messages.length; start += RESEND_MAX_BATCH) {
-				out.push(...(await sendOne(messages.slice(start, start + RESEND_MAX_BATCH))));
+				out.push(...(await sendSplitting(messages.slice(start, start + RESEND_MAX_BATCH))));
 			}
 			return out;
 		},
@@ -619,13 +652,57 @@ export function resendProvider(opts: ResendProviderOptions): MailProvider {
 		}
 	};
 
+	/**
+	 * #745: one batch of ≤ 100. When Resend refuses the call as a whole because of a recipient address
+	 * (nothing in it was accepted, see `sendOne`'s `refused`), the batch is split in halves, breadth
+	 * first: every part of a level is sent, one after another, before any part is split again, so
+	 * parts without a bad address are accepted early and only the parts still refused go deeper. Only
+	 * a refused single message ends as a permanent error with Resend's message. Each part has its own
+	 * idempotency key, `<batch key>-<start>-<end>` (its slice of this batch, absolute indices), so a
+	 * retry of that part reuses it and no two parts share one. A part that ends on a timeout, a 409, a
+	 * 429 or a 5xx is never split: its rows keep that retryable error and the rest of the level is
+	 * still sent. At most `RESEND_SPLIT_MAX_CALLS` calls per batch; the parts not sent by then (all
+	 * halves of a refused part) get `RESEND_SPLIT_LIMIT_ERROR` (not permanent).
+	 */
+	async function sendSplitting(batch: OutboundMessage[]): Promise<SendResult[]> {
+		const batchKey = `crm-batch-${crypto.randomUUID()}`;
+		const out: SendResult[] = new Array(batch.length);
+		let callsLeft = RESEND_SPLIT_MAX_CALLS;
+		let level: [number, number][] = [[0, batch.length]];
+		while (level.length) {
+			const next: [number, number][] = [];
+			for (const [start, end] of level) {
+				if (callsLeft <= 0) {
+					for (let i = start; i < end; i++) out[i] = { ok: false, error: RESEND_SPLIT_LIMIT_ERROR, permanent: false };
+					continue;
+				}
+				callsLeft--;
+				const whole = start === 0 && end === batch.length;
+				const key = whole ? batchKey : `${batchKey}-${start}-${end}`;
+				const r = await sendOne(batch.slice(start, end), key);
+				if (r.refused && end - start > 1) {
+					const mid = start + Math.ceil((end - start) / 2);
+					next.push([start, mid], [mid, end]);
+					continue;
+				}
+				r.rows.forEach((res, i) => (out[start + i] = res));
+			}
+			level = next;
+		}
+		return out;
+	}
+
 	/** One `POST /emails/batch` (≤ 100), retried on 429 / 5xx / a dropped connection / 409
 	 *  `concurrent_idempotent_requests` with the same idempotency key, so Resend sends each email at
 	 *  most once. Once a 409 was seen, running out of attempts gives `RESEND_STILL_PROCESSING_ERROR`
-	 *  (the earlier attempt may have sent the batch). */
-	async function sendOne(batch: OutboundMessage[]): Promise<SendResult[]> {
+	 *  (the earlier attempt may have sent the batch). A rejected key (401 / 403, or 400
+	 *  `validation_error` "API key is invalid", `isRejectedKey`) fails every row once, not
+	 *  permanently. `refused` = Resend refused the whole call for validation (422, or 400
+	 *  `validation_error`), its message is about a recipient address (`isRecipientRefusal`) and no
+	 *  409 was seen, so nothing was accepted and splitting can isolate the bad message. */
+	async function sendOne(batch: OutboundMessage[], idempotencyKey: string): Promise<{ rows: SendResult[]; refused: boolean }> {
+		const done = (rows: SendResult[], refused = false) => ({ rows, refused });
 		const body = JSON.stringify(batch.map(toResendEmail));
-		const idempotencyKey = `crm-batch-${crypto.randomUUID()}`;
 		let last: SendResult[] | null = null;
 		let inFlight = false;
 		const stillProcessing = () => failAll(batch.length, RESEND_STILL_PROCESSING_ERROR, { permanent: false, code: 409 });
@@ -652,8 +729,8 @@ export function resendProvider(opts: ResendProviderOptions): MailProvider {
 			}
 			const parsed = await readJson(res);
 			if (res.ok) {
-				if (!parsed || typeof parsed !== 'object') return failAll(batch.length, 'Resend sent an unreadable answer.', { permanent: false, transport: true });
-				return fromResendBatch(batch.length, parsed);
+				if (!parsed || typeof parsed !== 'object') return done(failAll(batch.length, 'Resend sent an unreadable answer.', { permanent: false, transport: true }));
+				return done(fromResendBatch(batch.length, parsed));
 			}
 			const { name, message } = errorText(res.status, parsed);
 			const text = scrubKey(`Resend ${name}: ${message}`, apiKey).slice(0, 300);
@@ -667,17 +744,26 @@ export function resendProvider(opts: ResendProviderOptions): MailProvider {
 			const quota = quotaName(res.status, name);
 			if (quota) {
 				const what = quota === 'daily' || quota === 'monthly' ? `${quota} sending quota` : `sending quota (${quota})`;
-				return failAll(batch.length, scrubKey(`Resend ${what} reached: ${message}`, apiKey).slice(0, 300), { permanent: false, code: 429 });
+				return done(failAll(batch.length, scrubKey(`Resend ${what} reached: ${message}`, apiKey).slice(0, 300), { permanent: false, code: 429 }));
 			}
 			if (res.status === 429 || res.status >= 500) {
 				last = failAll(batch.length, text, { permanent: false, code: res.status, ...(res.status >= 500 ? { transport: true } : {}) });
 				if (attempt < MAX_ATTEMPTS) await sleep(res.status === 429 ? retryAfterMs(res) : 500);
 				continue;
 			}
-			return failAll(batch.length, text, { permanent: isPermanentSendError(res.status, name), code: res.status });
+			if (isRejectedKey({ status: res.status, body: parsed })) {
+				// After a 409 the earlier attempt may have gone out: that stays the rows' error.
+				if (inFlight) return done(stillProcessing());
+				const why = scrubKey(`${RESEND_REJECTED_KEY_ERROR} (${name}: ${message}).`, apiKey).slice(0, 300);
+				return done(failAll(batch.length, why, { permanent: false, code: res.status }));
+			}
+			const permanent = isPermanentSendError(res.status, name);
+			const rawMessage = (parsed && typeof parsed === 'object' ? (parsed as ResendError).message : undefined) as unknown;
+			const refused = permanent && !inFlight && name !== 'missing_required_field' && isRecipientRefusal(rawMessage);
+			return done(failAll(batch.length, text, { permanent, code: res.status }), refused);
 		}
-		if (inFlight) return stillProcessing();
-		return last ?? failAll(batch.length, 'Resend request failed.', { permanent: false, transport: true });
+		if (inFlight) return done(stillProcessing());
+		return done(last ?? failAll(batch.length, 'Resend request failed.', { permanent: false, transport: true }));
 	}
 
 	return provider;

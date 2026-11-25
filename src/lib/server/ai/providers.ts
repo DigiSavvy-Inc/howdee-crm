@@ -31,12 +31,15 @@ export async function providerFor(
 	doFetch: typeof fetch = fetch
 ): Promise<AiProvider> {
 	const id = providerOf(model);
-	const key = await resolveProviderKey(db, platformEnv, id);
-	if (id === 'openai') return openAiCompatProvider({ apiKey: key, baseUrl: cfg.openai?.baseUrl || OPENAI_DEFAULT_BASE_URL }, doFetch);
-	return anthropicProvider(key, doFetch);
+	if (id === 'openai') {
+		// #748: the key is resolved for the host the request goes to, never for another one.
+		const baseUrl = cfg.openai?.baseUrl || OPENAI_DEFAULT_BASE_URL;
+		return openAiCompatProvider({ apiKey: await resolveProviderKey(db, platformEnv, 'openai', baseUrl), baseUrl }, doFetch);
+	}
+	return anthropicProvider(await resolveProviderKey(db, platformEnv, 'anthropic'), doFetch);
 }
 
-/** Which providers have a key (in-app or Worker secret). */
+/** Which providers have a key (in-app or Worker secret; OpenAI-compatible: for the saved base URL's host). */
 export async function configuredProviders(db: D1Database | null | undefined, platformEnv: unknown): Promise<Set<ProviderId>> {
 	const out = new Set<ProviderId>();
 	const [anthropic, openai] = await Promise.all([resolveProviderKey(db, platformEnv, 'anthropic'), resolveProviderKey(db, platformEnv, 'openai')]);

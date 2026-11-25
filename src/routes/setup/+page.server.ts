@@ -7,6 +7,9 @@ import {
 	createFirstAdmin,
 	hasAnyUser,
 	setupToken,
+	setupTokenTooShort,
+	SETUP_TOKEN_TOO_SHORT_MESSAGE,
+	SETUP_TOKEN_TOO_SHORT_PARTS,
 	validateFirstAdmin,
 	type FirstAdminInput
 } from '$lib/server/setup';
@@ -32,7 +35,9 @@ function clientIp(event: RequestEvent): string {
 export const load: ServerLoad = async (event) => {
 	const db = getDB(event);
 	if (await hasAnyUser(db)) throw error(404, 'Not found');
-	return { tokenSet: !!setupToken(event.platform?.env) };
+	const token = setupToken(event.platform?.env);
+	// #747: a SETUP_TOKEN under the minimum length is refused; the page says how to set a longer one.
+	return { tokenSet: !!token, tokenTooShort: setupTokenTooShort(token), tooShort: SETUP_TOKEN_TOO_SHORT_PARTS };
 };
 
 export const actions: Actions = {
@@ -42,6 +47,8 @@ export const actions: Actions = {
 		if (await hasAnyUser(db)) throw error(404, 'Not found');
 		const expected = setupToken(platform?.env);
 		if (!expected) return fail(400, { error: 'Set the SETUP_TOKEN secret first.' });
+		// #747: fail closed before the token is even compared; nothing is created or recorded.
+		if (setupTokenTooShort(expected)) return fail(400, { error: SETUP_TOKEN_TOO_SHORT_MESSAGE });
 		const secret = platform?.env?.SESSION_SECRET ?? '';
 		if (!secret) return fail(500, { error: 'Server is missing SESSION_SECRET.' });
 

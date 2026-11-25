@@ -36,7 +36,7 @@ export type SetupCheck = {
 
 export type SetupReport = {
 	checks: SetupCheck[];
-	/** Required + Postmark rows that need attention. */
+	/** Rows that need attention (required and Postmark rows, plus a leftover SETUP_TOKEN). */
 	attention: number;
 };
 
@@ -369,6 +369,25 @@ function optional(id: string, label: string, set: boolean, setText: string, notS
 	return { id, group: 'optional', label, state: set ? 'ready' : 'optional', detail: set ? setText : notSetText, href };
 }
 
+/**
+ * #747: Settings → Setup is only reachable signed in, so the first admin exists and `/setup` is
+ * gone: SETUP_TOKEN does nothing any more. Unset is `ready` (nothing to do); still set is
+ * `attention`, with the note that it can be deleted.
+ */
+export function setupTokenCheck(env: AnyEnv): SetupCheck {
+	if (!isSet(env, 'SETUP_TOKEN')) {
+		return { id: 'setup_token', group: 'optional', label: 'First-run setup token', state: 'ready', detail: 'Not set. The first admin exists, so it isn’t needed.' };
+	}
+	return {
+		id: 'setup_token',
+		group: 'optional',
+		label: 'First-run setup token',
+		state: 'attention',
+		detail: 'SETUP_TOKEN is still set. The first admin exists, so it’s no longer needed and can be deleted.',
+		fix: 'Run `npx wrangler secret delete SETUP_TOKEN`, or delete it in the Cloudflare dashboard (Workers & Pages, this Worker, Settings).'
+	};
+}
+
 export async function optionalChecks(db: D1Database, env: AnyEnv): Promise<SetupCheck[]> {
 	const [timingRow, githubRow, zohoRow, zohoOrg, anthropicRow, luma, openaiRow] = await Promise.all([
 		hasSecretRow(db, 'timing'),
@@ -383,7 +402,7 @@ export async function optionalChecks(db: D1Database, env: AnyEnv): Promise<Setup
 	return [
 		optional('github_oauth', 'Sign in with GitHub', both('GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET'), 'GITHUB_CLIENT_ID and _SECRET are set.', 'Not set: password sign-in only.', '/settings/users'),
 		optional('app_password', 'Break-glass server password', isSet(env, 'APP_PASSWORD'), 'APP_PASSWORD is set.', 'Not set.'),
-		optional('setup_token', 'First-run setup token', isSet(env, 'SETUP_TOKEN'), 'SETUP_TOKEN is set; you can delete it now that an admin exists.', 'Not set.'),
+		setupTokenCheck(env),
 		optional('mail_token_key', 'In-app secrets key', isSet(env, 'MAIL_TOKEN_KEY'), 'MAIL_TOKEN_KEY is set.', 'Not set: in-app tokens, Zoho and Gmail are off.', '/settings/integrations'),
 		optional('timing', 'Timing', timingRow || isSet(env, 'TIMING_API_TOKEN'), timingRow ? 'Token set in the app.' : 'TIMING_API_TOKEN is set.', 'Not connected.', '/settings/integrations'),
 		optional('github_token', 'GitHub repos', githubRow || isSet(env, 'GITHUB_TOKEN'), githubRow ? 'Token set in the app.' : 'GITHUB_TOKEN is set.', 'Not connected.', '/settings/integrations'),

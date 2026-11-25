@@ -241,7 +241,8 @@ describe('OpenAI-compatible adapter: stream (#696)', () => {
 			urls.push(url);
 			return new Response('{}', { status: 500 });
 		}) as unknown as typeof fetch;
-		const envKeys = { ANTHROPIC_API_KEY: 'sk-ant-test-696', OPENAI_API_KEY: 'sk-test-696' };
+		// #748: the OPENAI_API_KEY secret only goes to the pinned host.
+		const envKeys = { ANTHROPIC_API_KEY: 'sk-ant-test-696', OPENAI_API_KEY: 'sk-test-696', OPENAI_BASE_URL_HOST: 'llm.example.net' };
 		const cfg = normalizeConfig({ openai: OPENAI });
 		const req = { effort: null, system: '', messages: [], tools: [] };
 		await collect((await providerFor(db, envKeys, cfg, { provider: 'openai' }, fetchMock)).stream({ ...req, model: 'openai:big-model' }));

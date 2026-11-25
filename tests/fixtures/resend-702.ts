@@ -10,7 +10,7 @@ export const FAKE_WEBHOOK_SECRET = 'whsec_' + btoa('fake-webhook-secret-0702!');
 /** `POST /emails/batch` → 200: one id per message, in order. */
 export const batchOk = (n: number, prefix = 'rs-msg') => ({ data: Array.from({ length: n }, (_, i) => ({ id: `${prefix}-${i}` })) });
 
-export const errorRateLimit = { statusCode: 429, name: 'rate_limit_exceeded', message: 'Too many requests. You can only make 2 requests per second.' };
+export const errorRateLimit = { statusCode: 429, name: 'rate_limit_exceeded', message: 'Too many requests. You can only make 10 requests per second.' };
 export const errorRestricted = { statusCode: 401, name: 'restricted_api_key', message: 'This API key is restricted to only send emails' };
 export const errorInvalidKey = { statusCode: 403, name: 'invalid_api_key', message: 'API key is invalid' };
 /** An inactive key: 403 with the same name as a sending-only key. */

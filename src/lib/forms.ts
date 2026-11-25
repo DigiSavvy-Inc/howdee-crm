@@ -27,6 +27,7 @@ import { DEFAULT_RATING, coerceRating, normalizeRating, ratingProblems, ratingTe
 import { isFormProtectedKey } from '$lib/custom-fields';
 import { webhookUrlProblem } from '$lib/webhook-url';
 import { originProblem } from '$lib/form-origins';
+import { isEmail } from '$lib/csv';
 
 export type { FormRuleSet, PageJump } from '$lib/form-logic';
 
@@ -256,6 +257,8 @@ export type FormSettings = {
 	allowed_origins: string[];
 	/** #514: which conditional outcomes fire — every match (`all`, default) or the first. */
 	outcomes_mode: OutcomesMode;
+	/** #744: most confirmation emails + first writes of new addresses per UTC day; 0 = no cap. */
+	daily_send_cap: number;
 };
 
 export type FormSpec = {
@@ -296,6 +299,8 @@ export const FORM_LIMITS = {
 	origins: 20,
 	retentionMin: 1,
 	retentionMax: 3650,
+	/** #744: upper bound of `settings.daily_send_cap`. */
+	dailySendCapMax: 100000,
 	shortAnswer: 500,
 	longAnswer: 5000,
 	source: 60
@@ -435,9 +440,13 @@ export function defaultSettings(): FormSettings {
 		retention_days: 365,
 		noindex: true,
 		allowed_origins: [],
-		outcomes_mode: 'all'
+		outcomes_mode: 'all',
+		daily_send_cap: DEFAULT_DAILY_SEND_CAP
 	};
 }
+
+/** #744: the default per-form daily send cap. */
+export const DEFAULT_DAILY_SEND_CAP = 500;
 
 /** A new form: a title, an email field mapped to the contact, the default outcome. */
 export function emptyForm(title = 'Untitled form'): FormSpec {
@@ -666,8 +675,16 @@ function normalizeSettings(raw: unknown): FormSettings {
 		allowed_origins: Array.isArray(st.allowed_origins)
 			? st.allowed_origins.map((o) => s(o, 200).trim()).filter(Boolean).slice(0, FORM_LIMITS.origins * 2)
 			: [],
-		outcomes_mode: st.outcomes_mode === 'first' ? 'first' : 'all'
+		outcomes_mode: st.outcomes_mode === 'first' ? 'first' : 'all',
+		// #744: a spec saved before the cap existed (or junk) gets the default; the save check bounds it.
+		daily_send_cap: sendCapOf(st.daily_send_cap, d.daily_send_cap)
 	};
+}
+
+function sendCapOf(v: unknown, fallback: number): number {
+	if (v === null || v === undefined || v === '' || typeof v === 'boolean') return fallback;
+	const n = Number(v);
+	return Number.isInteger(n) && n >= 0 ? n : fallback;
 }
 
 /** Untrusted / stored JSON → a FormSpec. Junk → defaults; never throws. */
@@ -937,6 +954,9 @@ export function validateFormSpec(spec: FormSpec): SpecProblem[] {
 	if (!Number.isInteger(st.retention_days) || st.retention_days < L.retentionMin || st.retention_days > L.retentionMax) {
 		add('settings.retention_days', `Keep submissions between ${L.retentionMin} and ${L.retentionMax} days.`);
 	}
+	if (!Number.isInteger(st.daily_send_cap) || st.daily_send_cap < 0 || st.daily_send_cap > L.dailySendCapMax) {
+		add('settings.daily_send_cap', `Set the daily send limit between 0 (no limit) and ${L.dailySendCapMax}.`);
+	}
 	if (st.allowed_origins.length > L.origins) add('settings.allowed_origins', `At most ${L.origins} origins.`);
 	// #515: each line an origin (`https://example.com`, no path) — they go into a CSP header.
 	for (const o of st.allowed_origins) {
@@ -964,7 +984,6 @@ export type AnswerRule = {
 	coerce: (raw: string | string[] | undefined) => { value?: AnswerValue; error?: string };
 };
 
-const EMAIL_RE = /^[^\s@<>()",;:]+@[^\s@<>()",;:]+\.[^\s@<>()",;:]{2,}$/;
 const first = (raw: string | string[] | undefined) => (Array.isArray(raw) ? raw[0] : raw) ?? '';
 const all = (raw: string | string[] | undefined) => (Array.isArray(raw) ? raw : raw === undefined || raw === '' ? [] : [raw]);
 
@@ -978,7 +997,8 @@ function coerceOne(f: FormField, raw: string | string[] | undefined): { value?: 
 			return text ? { value: first(raw).replace(/\r\n/g, '\n').trim().slice(0, FORM_LIMITS.longAnswer) } : {};
 		case 'email':
 			if (!text) return {};
-			return EMAIL_RE.test(text) && text.length <= 254 ? { value: text.toLowerCase() } : { error: 'Enter a valid email address.' };
+			// #744: the shared address check (also ingest, newsletter signup, manual add).
+			return isEmail(text) ? { value: text.toLowerCase() } : { error: 'Enter a valid email address.' };
 		case 'phone':
 			if (!text) return {};
 			return /^[0-9+().\-\s/x]{3,40}$/i.test(text) && /\d/.test(text) ? { value: text } : { error: 'Enter a valid phone number.' };

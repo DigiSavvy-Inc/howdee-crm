@@ -272,6 +272,21 @@
 	</section>
 
 	<section class="group">
+		<h3>Daily send limit</h3>
+		<label>New addresses this form may mail per day
+			<input type="number" min="0" max="100000" step="1" bind:value={spec.settings.daily_send_cap} aria-describedby="form-send-cap-help" />
+		</label>
+		<div id="form-send-cap-help" class="muted small">
+			<p>This limits how many submissions this form lets start mail to someone new each UTC day. The limit is for this form only. Two things count. A new address counts once, when it is first added as a contact. A confirmation email counts too, when one goes out. That includes a confirmation email to an existing contact who is not subscribed, because they take the confirmation route.</p>
+			<p>A subscribed contact who submits again is not counted. Automation re-entry rules and the frequency cap govern their mail. A repeat from an address still waiting to confirm is not counted.</p>
+			<p>Past the limit, a submission is saved and the person sees the usual thank-you. It is held: nothing runs and nothing is sent until an admin releases it. A form busier than the limit will hold real sign-ups. The dashboard shows a notice and the Submissions tab lists them. A released submission earns no score points.</p>
+			<p>Held submissions are removed by the retention setting below like any other submission. A held submission older than that is gone, unreleased.</p>
+			<p>0 turns the limit off.</p>
+		</div>
+		{#each p('settings.daily_send_cap') as m, i (i)}<p class="err">{m}</p>{/each}
+	</section>
+
+	<section class="group">
 		<h3>Privacy</h3>
 		<label>Keep submissions for (days)
 			<input type="number" min="1" max="3650" bind:value={spec.settings.retention_days} />

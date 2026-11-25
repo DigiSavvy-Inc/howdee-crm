@@ -1,6 +1,6 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { getDB } from '$lib/server/db';
-import { isEmail } from '$lib/csv';
+import { isEmail, isStoredEmail } from '$lib/csv';
 import { safeEqual } from '$lib/server/auth';
 import { syncCompanyMembership } from '$lib/server/companies';
 import {
@@ -78,8 +78,11 @@ export const POST: RequestHandler = async (event) => {
 	const bodyEmail = has('email') ? String(body.email ?? '').trim().toLowerCase() : null;
 	if (!target) {
 		if (!bodyEmail) return json({ error: 'provide id or email' }, { status: 400 });
-		if (!isEmail(bodyEmail)) return json({ error: 'invalid email' }, { status: 400 });
+		// #744: looking up an existing contact accepts the looser check its address was stored
+		// under; creating a contact needs the strict one.
+		if (!isStoredEmail(bodyEmail)) return json({ error: 'invalid email' }, { status: 400 });
 		target = await db.prepare('SELECT id, email FROM contacts WHERE email = ?').bind(bodyEmail).first();
+		if (!target && !isEmail(bodyEmail)) return json({ error: 'invalid email' }, { status: 400 });
 	}
 	const creating = !target;
 
@@ -114,7 +117,8 @@ export const POST: RequestHandler = async (event) => {
 	let finalEmail = creating ? bodyEmail! : target!.email;
 	if (has('new_email')) {
 		const ne = String(body.new_email ?? '').trim().toLowerCase();
-		if (!isEmail(ne)) return json({ error: 'invalid new_email' }, { status: 400 });
+		// #744: a changed address needs the strict check; the contact's own stored one is accepted.
+		if (!isEmail(ne) && !(ne === finalEmail && isStoredEmail(ne))) return json({ error: 'invalid new_email' }, { status: 400 });
 		if (ne !== finalEmail) {
 			const clash = await db
 				.prepare('SELECT id FROM contacts WHERE email = ? AND id != ?')

@@ -5,7 +5,9 @@ import { getDB } from '$lib/server/db';
 import {
 	archiveForm,
 	deleteSubmission,
+	discardHeld,
 	duplicateForm,
+	heldCount,
 	getForm,
 	listSubmissions,
 	publishForm,
@@ -22,6 +24,7 @@ import { createAutomation } from '$lib/server/automation-write';
 import { listActiveAutomations } from '$lib/server/automations';
 import { formScoreRules } from '$lib/server/scoring/form-rules';
 import { answerQuestions } from '$lib/scoring';
+import { releaseAllHeld, releaseHeldSubmission, waitUntilFor, type SubmitEnv } from '$lib/server/form-submit';
 
 const PAGE_SIZE = 50;
 
@@ -71,6 +74,9 @@ export const load: PageServerLoad = async (event) => {
 		listRows.push(...extra.results);
 	}
 
+	// #744: submissions held by the daily send cap (0 before migration 0139).
+	const held = await heldCount(db, form.id);
+
 	// #621: the Settings tab's Scoring section (admins only).
 	const scoreRules = isAdmin ? await formScoreRules(db, form.id, answerQuestions(form.spec.fields)) : [];
 	// #620: the webhook's signing key (derived from SESSION_SECRET), admins only.
@@ -89,6 +95,7 @@ export const load: PageServerLoad = async (event) => {
 		tags: tags.results.map((r) => r.name),
 		submissions: subs.rows,
 		submissionTotal: subs.total,
+		heldCount: held,
 		automations,
 		activeAutomations,
 		filter,
@@ -175,5 +182,37 @@ export const actions: Actions = {
 		if (!Number.isInteger(sid) || sid <= 0) return fail(400, { error: 'Missing submission.' });
 		const ok = await deleteSubmission(getDB(event), formId(event), sid);
 		return ok ? { deleted: true } : fail(404, { error: 'Submission not found.' });
+	},
+	// #744: run a submission held by the daily send cap (admins only; the cap doesn't apply).
+	releaseSubmission: async (event) => {
+		const uid = adminOnly(event);
+		const sid = Number((await event.request.formData()).get('submission_id'));
+		if (!Number.isInteger(sid) || sid <= 0) return fail(400, { error: 'Missing submission.' });
+		const db = getDB(event);
+		const form = await getForm(db, formId(event));
+		if (!form) throw error(404, 'Form not found');
+		const res = await releaseHeldSubmission(db, (event.platform?.env ?? {}) as SubmitEnv, form, sid, await releaseContext(event, uid));
+		return res.ok ? { released: 1, failed: 0, remaining: await heldCount(db, form.id) } : fail(res.status, { error: res.error });
+	},
+	// At most RELEASE_BATCH per click; the page shows the counts and offers to run it again.
+	releaseHeld: async (event) => {
+		const uid = adminOnly(event);
+		const db = getDB(event);
+		const form = await getForm(db, formId(event));
+		if (!form) throw error(404, 'Form not found');
+		const res = await releaseAllHeld(db, (event.platform?.env ?? {}) as SubmitEnv, form, await releaseContext(event, uid));
+		return { released: res.released, failed: res.failed, remaining: res.remaining, stopped: res.stopped };
+	},
+	// #744: delete this form's held submissions (held rows only; nothing was sent for them).
+	discardHeld: async (event) => {
+		adminOnly(event);
+		const db = getDB(event);
+		const form = await getForm(db, formId(event));
+		if (!form) throw error(404, 'Form not found');
+		return { discarded: await discardHeld(db, form.id) };
 	}
 };
+
+async function releaseContext(event: { platform?: App.Platform; url: URL }, uid: number) {
+	return { baseUrl: await publicBaseUrlFor(event), userId: uid, waitUntil: waitUntilFor(event) };
+}

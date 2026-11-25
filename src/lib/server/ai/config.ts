@@ -6,9 +6,9 @@
 // per AI feature. Configs saved before #696 read as no other provider and no overrides, so an
 // Anthropic-only install behaves exactly as before.
 
-import { DEFAULT_EFFORT, DEFAULT_MODEL, MODELS, PROVIDER_LABELS, allModels, isEffort, modelInfo, providerOf, type Effort, type ModelInfo } from '$lib/ai-models';
+import { DEFAULT_EFFORT, DEFAULT_MODEL, MODELS, allModels, isEffort, modelInfo, providerOf, type Effort, type ModelInfo } from '$lib/ai-models';
 import { AI_FEATURES, OPENAI_DEFAULTS, modelFitsFeature, normalizeOpenAiConfig, openAiModelInfos, type AiFeature, type OpenAiConfig } from '$lib/ai-providers';
-import { resolveAnthropicKey, resolveProviderKey } from './key';
+import { adoptOpenAiKeyHost, openAiKeyProblem, resolveAnthropicKey, resolveProviderKey } from './key';
 
 export const AI_CONFIG_KEY = 'ai_assistant_config';
 
@@ -132,13 +132,35 @@ export async function getAssistantConfig(db: D1Database): Promise<AssistantConfi
 	}
 }
 
-/** Save after normalising (unknown models / effort / bad numbers fall back to defaults). */
-export async function saveAssistantConfig(db: D1Database, cfg: { [K in keyof AssistantConfig | 'enabled']?: unknown }): Promise<AssistantConfig> {
+/**
+ * Save after normalising (unknown models / effort / bad numbers fall back to defaults).
+ *
+ * #748: only the provider form may change where the OpenAI-compatible provider sends requests. Every
+ * other save (`setBaseUrl` not set) keeps the stored `openai.baseUrl` exactly as stored, in the same
+ * statement: the lenient read turns an unusable URL (e.g. plain http) into blank, and writing that
+ * back would silently point the provider (and the OPENAI_API_KEY secret) at api.openai.com.
+ */
+export async function saveAssistantConfig(
+	db: D1Database,
+	cfg: { [K in keyof AssistantConfig | 'enabled']?: unknown },
+	opts: { setBaseUrl?: boolean } = {}
+): Promise<AssistantConfig> {
 	const clean = normalizeConfig(cfg);
+	// #748: a key saved before host binding is bound to the base URL stored now, before this write
+	// can change (or blank) that URL. Otherwise a later read could bind it to the new host.
+	await adoptOpenAiKeyHost(db);
+	const keepStoredUrl = opts.setBaseUrl
+		? 'excluded.value'
+		: // Nested CASE, not AND: SQLite may evaluate both sides of AND, and json_type throws on malformed JSON.
+			`CASE WHEN json_valid(app_state.value) THEN
+				CASE WHEN json_type(app_state.value, '$.openai.baseUrl') = 'text'
+					THEN json_set(excluded.value, '$.openai.baseUrl', json_extract(app_state.value, '$.openai.baseUrl'))
+					ELSE excluded.value END
+			 ELSE excluded.value END`;
 	await db
 		.prepare(
 			`INSERT INTO app_state (key, value, updated_at) VALUES (?, ?, datetime('now'))
-			 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+			 ON CONFLICT(key) DO UPDATE SET value = ${keepStoredUrl}, updated_at = excluded.updated_at`
 		)
 		.bind(AI_CONFIG_KEY, JSON.stringify(clean))
 		.run();
@@ -269,10 +291,10 @@ export function featureModel(cfg: AssistantConfig, feature: AiFeature, fallback?
 /** '' when the model's provider has a key, else the message to show (#696). */
 export async function modelKeyProblem(db: D1Database | null | undefined, platformEnv: unknown, model: Pick<ModelInfo, 'provider'>): Promise<string> {
 	const id = providerOf(model);
+	// #748: the same message Test key gives (key for another address, secret pinned elsewhere, URL not usable).
+	if (id === 'openai') return openAiKeyProblem(db, platformEnv);
 	if (await resolveProviderKey(db, platformEnv, id)) return '';
-	return id === 'anthropic'
-		? "Assistant isn't set up. An admin needs to paste a key in Settings → Assistant or set the ANTHROPIC_API_KEY secret."
-		: `No key is set for ${PROVIDER_LABELS[id]}. An admin needs to paste one in Settings → Assistant or set the OPENAI_API_KEY secret.`;
+	return "Assistant isn't set up. An admin needs to paste a key in Settings → Assistant or set the ANTHROPIC_API_KEY secret.";
 }
 
 export type AssistantAvailability =

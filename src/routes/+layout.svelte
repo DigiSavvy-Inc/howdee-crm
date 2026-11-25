@@ -439,7 +439,9 @@
 											{/if}
 											<div class="usermenu-sep" role="separator"></div>
 											<form method="POST" action="/logout" class="logout" role="none">
-												<button type="submit" role="menuitem">Sign out</button>
+												<button type="submit" role="menuitem" aria-describedby="signout-note">Sign out</button>
+												<!-- Kept out of the menu's item list; the button's description reads it. -->
+												<span id="signout-note" class="usermenu-note" aria-hidden="true">Signs you out on every device.</span>
 											</form>
 										</div>
 									</div>
@@ -780,6 +782,13 @@
 		margin: 0;
 		display: flex;
 		flex-direction: column;
+	}
+	/* The line under Sign out: the same small muted text as the role label. */
+	.usermenu-note {
+		padding: 0 var(--space-xs) var(--space-xxs);
+		color: var(--muted);
+		font-size: var(--size-xs);
+		line-height: var(--line-xs);
 	}
 	/* Menu options: highlighted = neutral-3. */
 	[role='menuitem'] {

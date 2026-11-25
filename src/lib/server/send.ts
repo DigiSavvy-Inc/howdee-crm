@@ -8,6 +8,7 @@ import { addCrmTracking, newTrackId } from './crm-tracking';
 import { hasFormTags } from '$lib/form-embed';
 import { hasCompanyTags } from '$lib/merge-tags';
 import { companyMergeFields } from './company-metrics';
+import { replyTagAddress } from './reply-tag';
 import { listUnsubscribeHeaders, unsubscribeProblems, UNSUB_REFUSED_PREFIX } from '$lib/list-unsubscribe';
 
 export type SendableRecipient = {
@@ -95,8 +96,9 @@ export async function sendCampaignEmail(
 		trackLinks?: 'None' | 'HtmlAndText' | 'HtmlOnly' | 'TextOnly';
 		unsubscribe?: boolean;
 		/** Postmark inbound address (e.g. abc@inbound.postmarkapp.com). When set, each
-		 *  message gets a per-recipient Reply-To `<local>+c<cid>r<contact>@<domain>` so a
-		 *  reply's MailboxHash pins it to this campaign + contact (#38). */
+		 *  message gets a per-recipient Reply-To `<local>+c<cid>r<contact>s<sig>@<domain>` so a
+		 *  reply's MailboxHash pins it to this campaign + contact (#38; signed since #743,
+		 *  `reply-tag.ts`). */
 		replyToInbound?: string;
 		/** Explicit Reply-To. Wins over `replyToInbound` when both are set. */
 		replyTo?: string;
@@ -235,9 +237,11 @@ export async function sendCampaignEmail(
 			...(headers ?? []),
 			...(unsubToken ? listUnsubscribeHeaders(`${baseUrl}/unsubscribe/one-click?t=${unsubToken}`) : [])
 		];
+		// #743: the tag is signed, so a reply is filed under the contact it was sent to. No
+		// secret (or an address too long to tag) → the plain inbound address, matched by sender.
 		const replyAddr =
 			inboundParts && inboundParts.length === 2
-				? `${inboundParts[0]}+c${campaignId}r${r.id ?? 0}@${inboundParts[1]}`
+				? ((await replyTagAddress(replyToInbound!, (secret ?? '').trim(), campaignId, r.id ?? 0)) ?? replyToInbound)
 				: undefined;
 		// An explicit Reply-To (#108) wins; else the tagged inbound address, with the From's name.
 		const replyTo = fixedReplyTo

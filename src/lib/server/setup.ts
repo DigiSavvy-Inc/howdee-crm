@@ -8,8 +8,9 @@ import { credentialStamp, hashPassword, passwordPolicyError } from './password';
 import { isValidGitHubLogin } from './users';
 
 /**
- * The `login_attempts.username` key wrong setup tokens are counted under. It can't be a real
- * username (a GitHub login has no ':' and an email has an '@'), so it never collides.
+ * The `login_attempts.username` key wrong setup tokens are counted under. Sign-in usernames are
+ * stored under their own prefix (#747, `usernameAttemptKey`), so a typed username never reads
+ * or adds to this counter.
  */
 export const SETUP_ATTEMPT_KEY = 'setup:token';
 
@@ -27,6 +28,45 @@ export function setupToken(env: object | undefined): string {
 	const e = (env ?? {}) as { SETUP_TOKEN?: string };
 	return (e.SETUP_TOKEN ?? '').trim();
 }
+
+/**
+ * #747: the shortest SETUP_TOKEN `/setup` accepts, counted after trimming and without zero-width
+ * characters, one per code point (`setupTokenLength`). Only the first-run
+ * page reads it (no user exists yet); an install with an admin never looks at SETUP_TOKEN. A token
+ * the deploy generates is 32 characters.
+ */
+export const SETUP_TOKEN_MIN_LENGTH = 20;
+
+/** Zero-width characters (U+200B to U+200D, U+2060, U+FEFF), which don't count toward the length. */
+const ZERO_WIDTH = /[\u200B-\u200D\u2060\uFEFF]/g;
+
+/**
+ * How long a SETUP_TOKEN counts as: trimmed, zero-width characters removed, one per code point
+ * (so a surrogate pair is one character). Only the length check uses this; the token itself is
+ * compared as it is.
+ */
+export function setupTokenLength(token: string): number {
+	return Array.from(token.trim().replace(ZERO_WIDTH, '')).length;
+}
+
+/** True when SETUP_TOKEN is set but shorter than `SETUP_TOKEN_MIN_LENGTH` (see `setupTokenLength`). */
+export function setupTokenTooShort(token: string): boolean {
+	if (token.trim().length === 0) return false;
+	return setupTokenLength(token) < SETUP_TOKEN_MIN_LENGTH;
+}
+
+/**
+ * What `/setup` says, and refuses with, while SETUP_TOKEN is too short. Plain text; the page shows
+ * `command` in a code element.
+ */
+export const SETUP_TOKEN_TOO_SHORT_PARTS = {
+	before: `SETUP_TOKEN is too short: it needs at least ${SETUP_TOKEN_MIN_LENGTH} characters. Set a longer one, then open this page again. From a terminal, run `,
+	command: 'npm run deploy -- --new-setup-token',
+	after: ' for a fresh setup link. Installed with the Deploy to Cloudflare button: change the SETUP_TOKEN secret in the Cloudflare dashboard (Workers & Pages, this Worker, Settings).'
+} as const;
+
+export const SETUP_TOKEN_TOO_SHORT_MESSAGE =
+	SETUP_TOKEN_TOO_SHORT_PARTS.before + SETUP_TOKEN_TOO_SHORT_PARTS.command + SETUP_TOKEN_TOO_SHORT_PARTS.after;
 
 export type SetupTokenCheck = { ok: true } | { ok: false; status: 401 } | { ok: false; status: 429; minutes: number };
 

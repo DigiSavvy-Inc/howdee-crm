@@ -160,7 +160,8 @@ describe('the Resend adapter: sending', () => {
 		expect(f.calls).toHaveLength(1); // a success is never retried
 	});
 
-	it('a whole-batch validation failure (400 validation_error) marks every row with Resend’s message, permanently', async () => {
+	it('a validation failure that every part repeats (400 validation_error) marks every row with Resend’s message, permanently', async () => {
+		// #745: the refused batch is split down to single messages; here every part is refused too.
 		const f = fakeFetch([jsonRes(fx.errorBatchValidation, 400)]);
 		const p = resendProvider({ apiKey: fx.FAKE_RESEND_KEY, broadcast: 'broadcast', transactional: 'outbound', fetch: f.fn, sleep: noSleep });
 		const res = await p.sendBatch([msg('a@ourco.example'), msg('not-an-address'), msg('c@ourco.example')]);
@@ -169,7 +170,7 @@ describe('the Resend adapter: sending', () => {
 			expect(r).toMatchObject({ ok: false, permanent: true, code: 400 });
 			expect(!r.ok && r.error).toContain('Invalid `to` field');
 		}
-		expect(f.calls).toHaveLength(1);
+		expect(f.calls.map((c) => c.body.length)).toEqual([3, 2, 1, 1, 1]);
 	});
 
 	it('a 429 is retried with the same idempotency key; a refused key fails the batch, not permanently', async () => {

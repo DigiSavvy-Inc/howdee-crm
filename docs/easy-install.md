@@ -29,6 +29,11 @@ A new install takes one click or one command, then a few pages in the app:
   own. The separate heartbeat Worker stays supported.
 - **The button page asks for at most one value:** `SETUP_TOKEN`, a phrase the installer makes up.
   The terminal path asks for none.
+- **The setup token has a minimum length (#747).** While no user exists, `/setup` refuses a
+  `SETUP_TOKEN` shorter than 20 characters (after trimming): the page shows how to set a longer one
+  (`npm run deploy -- --new-setup-token`, or changing the secret in the Cloudflare dashboard for a
+  button install) and creates nothing. An install that already has an admin never reads
+  `SETUP_TOKEN`, so it's unaffected whatever the value. A generated token is 32 characters.
 - **A secret is never shown.** Generated values go to wrangler through a temporary file that is
   deleted afterwards. They are never printed, logged or committed. The one value an
   installer ever sees is the one-time setup link (terminal path).
@@ -41,7 +46,7 @@ A new install takes one click or one command, then a few pages in the app:
 | 2 | Signs in to Cloudflare (or creates an account). | 1 |
 | 3 | Connects a GitHub or GitLab account so Cloudflare can create a copy of the repository for Workers Builds. Skipped if one is already connected. | 0 or 1 |
 | 4 | Keeps the suggested names for the Worker, the D1 database and the R2 bucket, or changes them. | |
-| 5 | Types a phrase in the one field, `SETUP_TOKEN`, and keeps it for step 7. | |
+| 5 | Types a phrase in the one field, `SETUP_TOKEN` (at least 20 characters), and keeps it for step 7. | |
 | 6 | Clicks **Deploy** and waits for the build (a few minutes). | |
 | 7 | Opens the Worker's URL, gets sent to `/setup`, types the phrase and creates the first admin. | |
 | 8 | Follows the first-run wizard ([below](#first-run-wizard)). | |
@@ -196,11 +201,14 @@ secrets: …", "Secrets: nothing to set.").
    and the next run finishes it.
 9. **Closing line.**
    - This run generated the token: "Open the setup link above".
-   - No admin, `SETUP_TOKEN` set but not by this run: open `/setup` and use the phrase you chose,
-     or run `npm run deploy -- --new-setup-token` to get a fresh link.
-   - No admin and no `SETUP_TOKEN` (CI): set it with `npx wrangler secret put SETUP_TOKEN`.
+   - No admin, `SETUP_TOKEN` set but not by this run: open `/setup` and use the phrase you chose
+     (at least 20 characters), or run `npm run deploy -- --new-setup-token` to get a fresh link.
+   - No admin and no `SETUP_TOKEN` (CI): set it with `npx wrangler secret put SETUP_TOKEN` (at least
+     20 characters).
    - The user count couldn't be read on what looks like a fresh install: open `/setup`.
-   - An admin exists: the app's URL.
+   - An admin exists: the app's URL. The script doesn't read the database on a classic deploy, so it
+     can't say whether `SETUP_TOKEN` is still needed; Settings → Setup does: once the first admin
+     exists, its "First-run setup token" row says the secret can be deleted.
 
 Every captured wrangler command runs with colour off (`NO_COLOR=1`, `FORCE_COLOR=0`), and ANSI codes
 are stripped before its output is read. JSON output is used where the command offers it (`d1 list
@@ -238,7 +246,7 @@ runs with no prompts when `CI` or `WORKERS_CI` is set (classic mode keeps wrangl
 | `CRON_KEY` | 32 random bytes, hex | Gates the HTTP tick and `/api/health`. The in-Worker cron doesn't need it. An install that keeps the heartbeat Worker sets the same value there. |
 | `INGEST_KEY` | 32 random bytes, hex | Bearer key for `/api/ingest` and `/api/contacts/upsert`. Webhook keys in Settings → Webhooks work alongside it. |
 | `MAIL_TOKEN_KEY` | 32 random bytes, base64url | Seals tokens entered in Settings. Replacing it would make them unreadable, so it's never replaced. |
-| `SETUP_TOKEN` | 24 random bytes, base64url | Terminal path only, and only while no user exists. Never generated in CI. `--new-setup-token` makes a fresh one while no user exists. On the button path it's the installer's phrase. It can be deleted once an admin exists. |
+| `SETUP_TOKEN` | 24 random bytes, base64url | Terminal path only, and only while no user exists. Never generated in CI. `--new-setup-token` makes a fresh one while no user exists. On the button path it's the installer's phrase, at least 20 characters (#747). It can be deleted once an admin exists (Settings → Setup says so). |
 
 **A secret that's already set is never replaced,** whoever set it and whatever its value. Existing
 values are never read. The script only checks which names exist (`wrangler secret list`). The one

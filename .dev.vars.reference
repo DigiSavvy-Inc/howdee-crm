@@ -65,6 +65,9 @@ ANTHROPIC_API_KEY=
 # Optional (#696) — key for an OpenAI-compatible provider (OpenAI, OpenRouter, a local server)
 # set up in Settings → Assistant; the fallback when no key is pasted there. Unset = Claude only.
 OPENAI_API_KEY=
+# Optional (#748) — the only host the OPENAI_API_KEY secret is sent to (e.g. openrouter.ai, or
+# host:port). Not a secret; may also be a var. Unset = api.openai.com only.
+OPENAI_BASE_URL_HOST=
 # Optional (#120) — Settings → Domain "Attach to this Worker" via the Cloudflare API.
 # Unset = the page shows the dashboard steps. Attaching also needs the CF_ACCOUNT_ID and
 # WORKER_NAME vars (below).

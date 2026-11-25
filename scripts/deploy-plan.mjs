@@ -62,6 +62,12 @@ const PERMISSIONS = [
 ];
 
 const NEW_TOKEN_HINT = '`npm run deploy -- --new-setup-token`';
+/**
+ * #747: /setup refuses a SETUP_TOKEN shorter than this (after trimming); keep in step with
+ * SETUP_TOKEN_MIN_LENGTH in src/lib/server/setup.ts. A generated token (24 bytes, base64url) is 32.
+ */
+export const SETUP_TOKEN_MIN_LENGTH = 20;
+const SETUP_TOKEN_MIN_TEXT = `at least ${SETUP_TOKEN_MIN_LENGTH} characters`;
 
 /**
  * @typedef {{ code: number, stdout?: string, stderr?: string }} RunResult
@@ -292,7 +298,9 @@ export function planDatabase(db, existing, opts = {}) {
 	const byName = existing.find((d) => d.name === db.name);
 	if (!byName) return { action: 'create' };
 	if (opts.createdByThisInstall) return { action: 'adopt', id: byName.uuid, why: 'created by an earlier run of this install' };
-	// Workers Builds provisions the database from the config before the deploy command runs.
+	// Workers Builds provisions the database from the config before the deploy command runs. A
+	// same-named database is adopted here because a button install has no other way to find its own
+	// database on a later build; telling its own from another install's is tracked separately.
 	if (opts.workersBuilds) return { action: 'adopt', id: byName.uuid, why: 'provisioned by Workers Builds' };
 	if (opts.adoptDatabase) return { action: 'adopt', id: byName.uuid, why: '--adopt-database' };
 	return {
@@ -691,19 +699,19 @@ function runInstall(ctx, text, flags, configExisted) {
 		ctx.log(`Done. Open the setup link above to create the first admin. It's shown only once; to get a fresh one, run ${NEW_TOKEN_HINT}.`);
 	} else if (users === 0 && setNames.includes(SETUP_TOKEN.name)) {
 		ctx.log(
-			`No admin exists yet. Open ${where}/setup and either use the phrase you chose for SETUP_TOKEN, or run ${NEW_TOKEN_HINT} to get a fresh setup link.`
+			`No admin exists yet. Open ${where}/setup and either use the phrase you chose for SETUP_TOKEN (${SETUP_TOKEN_MIN_TEXT}), or run ${NEW_TOKEN_HINT} to get a fresh setup link.`
 		);
 	} else if (users === 0 && ctx.workersBuilds) {
 		// The button path: the phrase typed on the Deploy page is meant to be SETUP_TOKEN, but the
 		// secret list may not show it yet. Never print a value here.
 		ctx.log(
-			`No admin exists yet. Open ${where}/setup: the phrase you typed on the Deploy page is the setup token, and /setup asks for it. If /setup says the token is not set, add a secret named SETUP_TOKEN to this Worker in the Cloudflare dashboard (Workers & Pages, the Worker, Settings), then open /setup again.`
+			`No admin exists yet. Open ${where}/setup: the phrase you typed on the Deploy page is the setup token, and /setup asks for it. It needs ${SETUP_TOKEN_MIN_TEXT}. If /setup says the token is not set or too short, set a secret named SETUP_TOKEN on this Worker in the Cloudflare dashboard (Workers & Pages, the Worker, Settings), then open /setup again.`
 		);
 	} else if (users === 0) {
-		ctx.log(`No admin exists and SETUP_TOKEN isn't set. Set it with \`npx wrangler secret put SETUP_TOKEN\`, then open ${where}/setup.`);
+		ctx.log(`No admin exists and SETUP_TOKEN isn't set. Set it with \`npx wrangler secret put SETUP_TOKEN\` (${SETUP_TOKEN_MIN_TEXT}), then open ${where}/setup.`);
 	} else if (users === null && looksFresh) {
 		ctx.log(
-			`Couldn't read the number of users. Open ${where}/setup to create the first admin; if it asks for a setup token you don't have, set one with \`npx wrangler secret put SETUP_TOKEN\`.`
+			`Couldn't read the number of users. Open ${where}/setup to create the first admin; if it asks for a setup token you don't have, set one with \`npx wrangler secret put SETUP_TOKEN\` (${SETUP_TOKEN_MIN_TEXT}).`
 		);
 	} else {
 		ctx.log(`Done. The app is at ${where}.`);

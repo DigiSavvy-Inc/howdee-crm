@@ -351,7 +351,11 @@ export const actions: Actions = {
 		const data = await event.request.formData();
 
 		const email = String(data.get('email') ?? '').trim().toLowerCase();
-		if (!isEmail(email)) return fail(400, { detailError: 'Enter a valid email address.' });
+		if (!isEmail(email)) {
+			// #744: an address saved before the stricter check stays editable while it is unchanged.
+			const cur = await db.prepare('SELECT email FROM contacts WHERE id = ?').bind(id).first<{ email: string }>();
+			if (!email || cur?.email !== email) return fail(400, { detailError: 'Enter a valid email address.' });
+		}
 
 		const clash = await db
 			.prepare('SELECT id FROM contacts WHERE email = ? AND id != ?')

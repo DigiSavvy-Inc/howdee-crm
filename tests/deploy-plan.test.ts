@@ -5,6 +5,7 @@ import template from '../wrangler.example.jsonc?raw';
 import {
 	GENERATED_SECRETS,
 	MARKER_FILE,
+	SETUP_TOKEN_MIN_LENGTH,
 	chooseMode,
 	deployPlan,
 	isWorkerNotFound,
@@ -401,7 +402,7 @@ describe('install mode (#730)', () => {
 		expect(t.calls.some((c) => c.includes(' create '))).toBe(false);
 		expect(t.secretFiles).toEqual([]);
 		expect(t.logs.at(-1)).toBe(
-			'No admin exists yet. Open https://howdee-crm.someone.workers.dev/setup and either use the phrase you chose for SETUP_TOKEN, or run `npm run deploy -- --new-setup-token` to get a fresh setup link.'
+			'No admin exists yet. Open https://howdee-crm.someone.workers.dev/setup and either use the phrase you chose for SETUP_TOKEN (at least 20 characters), or run `npm run deploy -- --new-setup-token` to get a fresh setup link.'
 		);
 	});
 
@@ -498,7 +499,7 @@ describe('install mode (#730)', () => {
 		expect(runDeploy(t.ctx)).toBe(0);
 		expect(Object.keys(t.secretFiles[0])).not.toContain('SETUP_TOKEN');
 		expect(t.logs.at(-1)).toBe(
-			"No admin exists and SETUP_TOKEN isn't set. Set it with `npx wrangler secret put SETUP_TOKEN`, then open https://crm.example.com/x/setup."
+			"No admin exists and SETUP_TOKEN isn't set. Set it with `npx wrangler secret put SETUP_TOKEN` (at least 20 characters), then open https://crm.example.com/x/setup."
 		);
 	});
 
@@ -518,7 +519,7 @@ describe('install mode (#730)', () => {
 		expect(runDeploy(t.ctx)).toBe(0);
 		expect(Object.keys(t.secretFiles[0])).not.toContain('SETUP_TOKEN');
 		expect(t.logs.at(-1)).toBe(
-			'No admin exists yet. Open https://crm.example.com/x/setup: the phrase you typed on the Deploy page is the setup token, and /setup asks for it. If /setup says the token is not set, add a secret named SETUP_TOKEN to this Worker in the Cloudflare dashboard (Workers & Pages, the Worker, Settings), then open /setup again.'
+			'No admin exists yet. Open https://crm.example.com/x/setup: the phrase you typed on the Deploy page is the setup token, and /setup asks for it. It needs at least 20 characters. If /setup says the token is not set or too short, set a secret named SETUP_TOKEN on this Worker in the Cloudflare dashboard (Workers & Pages, the Worker, Settings), then open /setup again.'
 		);
 		expect(t.logs.join(NL)).not.toContain('wrangler secret put');
 	});
@@ -578,6 +579,13 @@ describe('install mode stops (#730)', () => {
 			expect(t.calls.some((c) => c.includes(' create '))).toBe(false);
 			expect(readConfig(t.files['wrangler.jsonc']).database.id).toBe(OTHER_ID);
 		}
+	});
+
+	it('#747: a SETUP_TOKEN the deploy generates is longer than the minimum /setup asks for', () => {
+		const { setupToken } = planSecrets([], { users: 0 }, (n) => new Uint8Array(n).fill(7));
+		expect(setupToken).not.toBeNull();
+		expect((setupToken ?? '').length).toBeGreaterThanOrEqual(SETUP_TOKEN_MIN_LENGTH);
+		expect(SETUP_TOKEN_MIN_LENGTH).toBe(20);
 	});
 
 	it('a new install never takes over a bucket that already exists, and creates nothing', () => {

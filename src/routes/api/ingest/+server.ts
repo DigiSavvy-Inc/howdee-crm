@@ -10,8 +10,8 @@ import { guardReportUrl } from '$lib/server/report-url';
 import { snapshot } from '$lib/server/snapshot';
 import { findSiteByKey } from '$lib/server/site-tracking';
 import { signVisitorId, verifyVisitorToken } from '$lib/server/track-token';
-import { findWebhookKey, clientBucket, type WebhookKey } from '$lib/server/webhook-keys';
-import { limit, ipHash } from '$lib/server/rate-limit';
+import { findWebhookKey, type WebhookKey } from '$lib/server/webhook-keys';
+import { limit, clientHash } from '$lib/server/rate-limit';
 import { sessionSecret } from '$lib/server/token';
 import { needsConfirmation, requestConfirmation, type DeliveryResult } from '$lib/server/double-optin';
 import { NO_DEFAULT_LIST_ERROR, defaultListName } from '$lib/server/default-list';
@@ -101,8 +101,13 @@ export const POST: RequestHandler = async (event) => {
 		if (wait) return tooMany(wait);
 	}
 	{
-		const wait = await overLimit(db, `ingest:key:${webhookKey ? `k${webhookKey.id}` : 'env'}`, INGEST_LIMIT_PER_KEY);
-		if (wait) return tooMany(wait);
+		const r = await limitCheck(db, `ingest:key:${webhookKey ? `k${webhookKey.id}` : 'env'}`, INGEST_LIMIT_PER_KEY);
+		if (r.wait) {
+			// #744: the first refusal of a window leaves one row in the key's request log, so the
+			// operator sees that the key's shared limit was reached (later refusals add none).
+			if (r.first) await logKeyLimit(db, webhookKey?.id ?? null);
+			return tooMany(r.wait);
+		}
 	}
 
 	// Accept JSON or a normal form post (urlencoded / multipart).
@@ -236,7 +241,9 @@ export const POST: RequestHandler = async (event) => {
 				},
 				contact: { name: fullName, first_name: first, last_name: last, company },
 				// #742: untrusted → an archived contact is restored only by the confirm click.
-				keepArchived: !trusted
+				keepArchived: !trusted,
+				// #744: untrusted → a repeat submission keeps an open confirmation's choices.
+				keepOpenIntent: !trusted
 			},
 			{
 				defer: (delivery) => {
@@ -437,20 +444,39 @@ const tooMany = (retryAfter: number) =>
 /** Seconds to wait when `key` is over `max` in the window, else 0. A limiter failure never
  *  blocks a real lead (fails open). */
 async function overLimit(db: D1Database, key: string, max: number): Promise<number> {
+	return (await limitCheck(db, key, max)).wait;
+}
+
+/** `overLimit` plus whether this is the window's first refused request. */
+async function limitCheck(db: D1Database, key: string, max: number): Promise<{ wait: number; first: boolean }> {
 	try {
 		const r = await limit(db, key, { max, windowSec: INGEST_WINDOW_SEC });
-		return r.ok ? 0 : r.retryAfter;
+		return r.ok ? { wait: 0, first: false } : { wait: r.retryAfter, first: r.count === max + 1 };
 	} catch (e) {
 		console.error('ingest rate limit failed:', e);
-		return 0;
+		return { wait: 0, first: false };
+	}
+}
+
+/** Text of the request-log row written when a key reaches its shared limit (#744). */
+const KEY_LIMIT_DETAIL = 'rate limited: this key reached its limit for the next few minutes';
+
+/** #744: one `webhook_events` row for the key (best-effort; never fails the request). */
+async function logKeyLimit(db: D1Database, keyId: number | null): Promise<void> {
+	try {
+		await db
+			.prepare("INSERT INTO webhook_events (key_id, email, status, detail, payload) VALUES (?, NULL, 'rejected', ?, '{}')")
+			.bind(keyId, KEY_LIMIT_DETAIL)
+			.run();
+	} catch (e) {
+		console.error('ingest key limit log failed:', e);
 	}
 }
 
 /** The client's rate-limit id: a hash of its address bucket (IPv6 by /64), or null. */
 async function clientId(event: Parameters<RequestHandler>[0]): Promise<string | null> {
 	try {
-		const bucket = clientBucket(event.request.headers.get('cf-connecting-ip'));
-		return bucket ? await ipHash(bucket, event.platform?.env?.SESSION_SECRET) : null;
+		return await clientHash(event.request.headers.get('cf-connecting-ip'), event.platform?.env?.SESSION_SECRET);
 	} catch (e) {
 		console.error('ingest client id failed:', e);
 		return null;

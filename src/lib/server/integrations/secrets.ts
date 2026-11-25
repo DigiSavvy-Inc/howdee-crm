@@ -67,14 +67,42 @@ export async function openSecret(db: D1Database, mailTokenKey: string | undefine
 	}
 }
 
-async function audit(db: D1Database, provider: string, action: 'set' | 'removed', last4: string | null) {
-	await db
+/** The audit row for a set / remove, as a statement (so it can go in a caller's db.batch). */
+export function auditSecretStatement(db: D1Database, provider: string, action: 'set' | 'removed', last4: string | null): D1PreparedStatement {
+	return db
 		.prepare(
 			`INSERT INTO integration_syncs (provider, trigger, finished_at, ok, detail)
 			 VALUES (?, 'token', datetime('now'), 1, ?)`
 		)
-		.bind(provider, JSON.stringify({ action, last4 }))
-		.run();
+		.bind(provider, JSON.stringify({ action, last4 }));
+}
+
+/** The upsert of an already sealed blob, as a statement (for a caller's db.batch). */
+export function storeSealedSecretStatement(db: D1Database, provider: string, blob: string, last4: string, userId: number | null): D1PreparedStatement {
+	return db
+		.prepare(
+			`INSERT INTO integration_secrets (provider, blob, last4, set_by, set_at)
+			 VALUES (?, ?, ?, ?, datetime('now'))
+			 ON CONFLICT(provider) DO UPDATE SET blob = excluded.blob, last4 = excluded.last4,
+			   set_by = excluded.set_by, set_at = excluded.set_at`
+		)
+		.bind(provider, blob, last4, userId);
+}
+
+/** For a caller's db.batch: audits a removal when a row exists. Must run BEFORE the DELETE
+ *  in the same batch (it reads last4 from the row about to go). Same detail as `auditSecretStatement`. */
+export function auditSecretRemovalStatement(db: D1Database, provider: string): D1PreparedStatement {
+	return db
+		.prepare(
+			`INSERT INTO integration_syncs (provider, trigger, finished_at, ok, detail)
+			 SELECT provider, 'token', datetime('now'), 1, json_object('action', 'removed', 'last4', last4)
+			 FROM integration_secrets WHERE provider = ?`
+		)
+		.bind(provider);
+}
+
+async function audit(db: D1Database, provider: string, action: 'set' | 'removed', last4: string | null) {
+	await auditSecretStatement(db, provider, action, last4).run();
 }
 
 /** Seal + store (replacing any previous row) and audit. Throws without a valid key. */
@@ -89,15 +117,7 @@ export async function storeSecret(
 	if (!isValidKey(mailTokenKey)) throw new Error('MAIL_TOKEN_KEY is not set');
 	const blob = await seal(mailTokenKey, token);
 	const last4 = opts.last4 ?? token.slice(-4);
-	await db
-		.prepare(
-			`INSERT INTO integration_secrets (provider, blob, last4, set_by, set_at)
-			 VALUES (?, ?, ?, ?, datetime('now'))
-			 ON CONFLICT(provider) DO UPDATE SET blob = excluded.blob, last4 = excluded.last4,
-			   set_by = excluded.set_by, set_at = excluded.set_at`
-		)
-		.bind(provider, blob, last4, userId)
-		.run();
+	await storeSealedSecretStatement(db, provider, blob, last4, userId).run();
 	await audit(db, provider, 'set', last4);
 	return { last4 };
 }

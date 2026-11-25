@@ -214,8 +214,16 @@ describe('optional checks', () => {
 		expect(byId(set, 'anthropic').state).toBe('ready');
 		expect(byId(set, 'google').state).toBe('optional');
 		const bare = await optionalChecks(db, { DB: db });
-		expect(bare.every((r) => r.state === 'optional')).toBe(true);
+		// #747: the setup token row is the exception: unset needs nothing, so it's ready.
+		expect(bare.filter((r) => r.id !== 'setup_token').every((r) => r.state === 'optional')).toBe(true);
 		expect(bare.every((r) => r.group === 'optional')).toBe(true);
+	});
+
+	it('#747: the setup token row is ready when unset and needs attention while still set', async () => {
+		expect(byId(await optionalChecks(db, { DB: db }), 'setup_token').state).toBe('ready');
+		const left = byId(await optionalChecks(db, goodEnv({ SETUP_TOKEN: 'leftover-setup-token-609' })), 'setup_token'); // gitleaks:allow
+		expect(left.state).toBe('attention');
+		expect(left.detail).toMatch(/can be deleted/);
 	});
 });
 

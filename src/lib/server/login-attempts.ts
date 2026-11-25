@@ -18,6 +18,22 @@ export function normalizeUsername(input: string): string {
 	return input.trim().toLowerCase().slice(0, 100);
 }
 
+/**
+ * #747: `login_attempts.username` holds two kinds of key. A typed sign-in username is always
+ * stored and read under this prefix (`usernameAttemptKey`); the app's own counters use fixed keys
+ * that never start with it (`setup:token`, `break-glass`, `token:open`, `reset:…`, `invite:…`,
+ * `verify:…`). So nothing a person types on /login can read or add to those counters.
+ *
+ * Rows written before this change (bare usernames) no longer count toward any username lockout;
+ * they still count toward the per-IP limit and age out of the 15-minute window like any other.
+ */
+export const USERNAME_KEY_PREFIX = 'user:';
+
+/** The `login_attempts.username` key for a typed sign-in username. */
+export function usernameAttemptKey(username: string): string {
+	return USERNAME_KEY_PREFIX + normalizeUsername(username);
+}
+
 function minutesUntilClear(at: string | undefined): number {
 	if (!at) return 0;
 	const since = Date.parse(at.replace(' ', 'T') + 'Z');
@@ -26,7 +42,10 @@ function minutesUntilClear(at: string | undefined): number {
 	return Math.max(1, Math.ceil(left / 60_000));
 }
 
-/** Minutes until this username / IP may try again; 0 when not locked out. */
+/**
+ * Minutes until this key / IP may try again; 0 when not locked out. `username` is the stored key:
+ * `usernameAttemptKey(…)` for a sign-in, or one of the app's fixed keys.
+ */
 export async function lockoutMinutes(db: D1Database, username: string, ip: string): Promise<number> {
 	const window = `-${LOCK_WINDOW_MINUTES} minutes`;
 	// The Nth-newest counted failure: once it leaves the window the count drops below N.
@@ -71,18 +90,19 @@ export async function signInWithPassword(
 	input: { username: string; password: string; ip: string }
 ): Promise<PasswordSignIn> {
 	const username = normalizeUsername(input.username);
-	const minutes = await lockoutMinutes(db, username, input.ip);
+	const key = usernameAttemptKey(username);
+	const minutes = await lockoutMinutes(db, key, input.ip);
 	if (minutes > 0) return { ok: false, status: 429, minutes };
 
 	const cred = username ? await findPasswordCredential(db, username) : null;
 	// Always runs the KDF (verifyPassword hashes against a dummy when there's no hash).
 	const match = await verifyPassword(input.password, cred?.password_hash);
 	if (!cred || !match || cred.disabled_at) {
-		await recordAttempt(db, username, input.ip, false);
+		await recordAttempt(db, key, input.ip, false);
 		return { ok: false, status: 401 };
 	}
 
-	await recordAttempt(db, username, input.ip, true);
+	await recordAttempt(db, key, input.ip, true);
 	await touchLastLogin(db, cred.id);
 	if (needsRehash(cred.password_hash)) {
 		await replacePasswordHash(db, cred.id, await hashPassword(input.password));

@@ -349,7 +349,7 @@ Enjoy the newsletter.
 			id: 'account',
 			title: 'Settings & your account',
 			routes: ['/settings'],
-			body: `<p>Settings, the tour, and sign-out live under your avatar — click it (top right, or the bottom of the sidebar) for <strong>Settings</strong>, <strong>Take the tour</strong>, <strong>Match device theme</strong>, <strong>Install app</strong> (when your browser offers it), and <strong>Sign out</strong>.</p>
+			body: `<p>Settings, the tour, and sign-out live under your avatar — click it (top right, or the bottom of the sidebar) for <strong>Settings</strong>, <strong>Take the tour</strong>, <strong>Match device theme</strong>, <strong>Install app</strong> (when your browser offers it), and <strong>Sign out</strong> (it signs you out on every device).</p>
 <p>The sun / moon switch in the header flips between light and dark. Until you flip it the app follows your device; <strong>Match device theme</strong> goes back to that.</p>`
 		},
 		{

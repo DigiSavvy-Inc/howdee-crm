@@ -29,7 +29,10 @@ const PREFIX = 'pwtest-';
 
 async function cleanup() {
 	await db.prepare(`DELETE FROM users WHERE github_login LIKE ?`).bind(`${PREFIX}%`).run();
-	await db.prepare(`DELETE FROM login_attempts WHERE username LIKE ? OR ip LIKE ?`).bind(`${PREFIX}%`, `${PREFIX}%`).run();
+	await db
+		.prepare(`DELETE FROM login_attempts WHERE username LIKE ? OR username LIKE ? OR ip LIKE ?`)
+		.bind(`${PREFIX}%`, `user:${PREFIX}%`, `${PREFIX}%`)
+		.run();
 }
 
 async function makeUser(suffix: string, role: 'admin' | 'member' = 'member'): Promise<number> {
@@ -181,7 +184,7 @@ describe('sign-in with username + password', () => {
 		expect(session?.userId).toBe(id);
 		const row = await db.prepare(`SELECT last_login_at FROM users WHERE id = ?`).bind(id).first<{ last_login_at: string | null }>();
 		expect(row?.last_login_at).not.toBeNull();
-		const ok = await db.prepare(`SELECT ok FROM login_attempts WHERE username = ?`).bind(`${PREFIX}ann`).first<{ ok: number }>();
+		const ok = await db.prepare(`SELECT ok FROM login_attempts WHERE username = ?`).bind(`user:${PREFIX}ann`).first<{ ok: number }>();
 		expect(ok?.ok).toBe(1);
 	});
 
@@ -230,7 +233,7 @@ describe('sign-in with username + password', () => {
 		for (let i = 0; i < 5; i++) {
 			await db
 				.prepare(`INSERT INTO login_attempts (username, ip, ok, at) VALUES (?, ?, 0, datetime('now', '-16 minutes'))`)
-				.bind(`${PREFIX}di`, `${PREFIX}old`)
+				.bind(`user:${PREFIX}di`, `${PREFIX}old`)
 				.run();
 		}
 		await expectRedirect(

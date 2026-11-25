@@ -40,7 +40,14 @@ export type OpenAiConfig = {
 
 export const OPENAI_DEFAULTS: OpenAiConfig = { baseUrl: '', label: '', models: [] };
 
-/** '' when the URL is usable, else the reason. http(s), no credentials, no query or fragment. */
+/** The OpenAI API's host: the only one the OPENAI_API_KEY Worker secret goes to unless the
+ *  operator names another in OPENAI_BASE_URL_HOST (#748). */
+export const OPENAI_DEFAULT_HOST = 'api.openai.com';
+/** Hosts a base URL may use plain http for: a model server on this machine (#748). */
+export const LOCAL_HTTP_HOSTS: ReadonlySet<string> = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/** '' when the URL is usable, else the reason. https (http only for localhost), no credentials,
+ *  no query or fragment. */
 export function baseUrlProblem(raw: string): string {
 	const v = raw.trim();
 	if (!v) return '';
@@ -51,10 +58,57 @@ export function baseUrlProblem(raw: string): string {
 	} catch {
 		return 'The base URL must be a full URL, e.g. https://api.openai.com/v1.';
 	}
-	if (u.protocol !== 'https:' && u.protocol !== 'http:') return 'The base URL must start with https://.';
+	if (u.protocol !== 'https:' && !(u.protocol === 'http:' && LOCAL_HTTP_HOSTS.has(u.hostname.toLowerCase()))) {
+		return 'The base URL must start with https:// (http:// only for localhost, 127.0.0.1 or [::1]).';
+	}
 	if (u.username || u.password) return "The base URL can't contain a user name or password. Put the key in the key field.";
 	if (u.search || u.hash) return "The base URL can't have a query string or #fragment.";
 	return '';
+}
+
+/**
+ * A stored URL as it may be shown: any user name / password replaced by `***`
+ * (`https://user:pw@host/v1` → `https://***@host/v1`, #748). The authority is read the way the URL
+ * parser does (after `scheme:` and its slashes or backslashes, up to the first / ? # or \, the
+ * userinfo ending at its last @). Anything else is returned unchanged.
+ */
+export function maskUrlCredentials(raw: string): string {
+	// No slash after the scheme (`user:pw@host`, `https:user:pw@host`): mask from the start, scheme too.
+	const start = /^[a-z][a-z0-9+.-]*:[\\/]+/i.exec(raw)?.[0].length ?? 0;
+	const rest = raw.slice(start);
+	const end = rest.search(/[/?#\\]/);
+	const authority = end === -1 ? rest : rest.slice(0, end);
+	const at = authority.lastIndexOf('@');
+	if (at === -1) return raw;
+	return `${raw.slice(0, start)}***${rest.slice(at)}`;
+}
+
+/**
+ * The host (lowercase, with a non-default port) a base URL sends requests to: blank = the OpenAI
+ * default host; null when the URL isn't usable (#748). A key is only sent to the host it was saved for.
+ */
+export function baseUrlHost(raw: unknown): string | null {
+	const v = typeof raw === 'string' ? raw.trim() : '';
+	if (!v) return OPENAI_DEFAULT_HOST;
+	if (baseUrlProblem(v)) return null;
+	try {
+		return new URL(v).host.toLowerCase();
+	} catch {
+		return null;
+	}
+}
+
+/** A host as the operator may write it (bare host, host:port or a URL) in `baseUrlHost`'s form; '' when unusable. */
+export function cleanHostSetting(raw: unknown): string {
+	const v = typeof raw === 'string' ? raw.trim() : '';
+	if (!v) return '';
+	try {
+		const u = new URL(v.includes('://') ? v : `https://${v}`);
+		if (u.username || u.password) return '';
+		return u.host.toLowerCase();
+	} catch {
+		return '';
+	}
 }
 
 /** The base URL without a trailing slash; blank or unusable = the OpenAI default. */

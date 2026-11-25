@@ -87,6 +87,18 @@
 		</div>
 	{/if}
 
+	{#if data.formSendHolds?.length}
+		<!-- #744: admins only; one line per form whose daily send limit held submissions. -->
+		<div class="notice warn" role="status">
+			<strong>A form reached its daily send limit.</strong> Its submissions are saved but nothing was sent for them.
+			<ul class="held-list">
+				{#each data.formSendHolds as f (f.form_id)}
+					<li><a href="/forms/{f.form_id}?tab=submissions&status=held">{f.name}</a>: {f.held.toLocaleString()} held since {f.first_held_at.slice(0, 10)}</li>
+				{/each}
+			</ul>
+		</div>
+	{/if}
+
 	{#if data.setupAttention > 0}
 		<!-- #609: admins only (the load returns 0 for members). -->
 		<p class="notice warn" role="status">

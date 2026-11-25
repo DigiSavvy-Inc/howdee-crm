@@ -14,6 +14,7 @@ import {
 	SOURCE_HEADER
 } from '$lib/server/archive-public';
 import { configureReportHost } from '$lib/server/report-url';
+import { crossSiteRefused, CROSS_SITE_MESSAGE } from '$lib/server/same-origin';
 
 // Routes reachable without logging in.
 const PUBLIC_PREFIXES = [
@@ -45,7 +46,9 @@ const PUBLIC_PREFIXES = [
 // Machine webhook endpoints meant to be called cross-origin (Postmark, forms, cron).
 // SvelteKit's built-in origin CSRF is off (svelte.config.js); we re-enforce it below for
 // everything *except* these — they're gated by their own keys, not the session cookie.
-const CSRF_EXEMPT = [
+// #749: no route under these prefixes may act on `locals.user` (the session is never trusted here).
+// Exported for tests/csrf-exempt-routes-749.test.ts, which reads every route file under them.
+export const CSRF_EXEMPT = [
 	'/api/webhook',
 	'/api/ingest',
 	'/api/contacts/upsert',
@@ -60,8 +63,6 @@ const CSRF_EXEMPT = [
 	'/newsletter/subscribe', // #587: the archive's sign-up form post — same handleSubmission origin check (request's own origin allowed)
 	'/unsubscribe/one-click' // RFC 8058 List-Unsubscribe-Post (#264) — mailbox providers POST with no Origin; signed token
 ];
-const FORM_CONTENT_TYPES = ['application/x-www-form-urlencoded', 'multipart/form-data', 'text/plain'];
-const MUTATING = ['POST', 'PUT', 'PATCH', 'DELETE'];
 
 function matchesPrefix(path: string, prefixes: string[]): boolean {
 	return prefixes.some((p) => path === p || path.startsWith(p + '/'));
@@ -120,21 +121,20 @@ const appHandle: Handle = async ({ event, resolve }) => {
 		if (target) return new Response(null, { status: 301, headers: { location: target } });
 	}
 
-	// Re-implement SvelteKit's origin CSRF check (disabled globally) so cross-origin form
-	// posts are still rejected — except for the machine webhook endpoints.
-	if (MUTATING.includes(event.request.method)) {
-		const ct = (event.request.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
-		if (
-			FORM_CONTENT_TYPES.includes(ct) &&
-			!matchesPrefix(event.url.pathname, CSRF_EXEMPT) &&
-			event.request.headers.get('origin') !== event.url.origin
-		) {
-			return new Response('Cross-site POST form submissions are forbidden', { status: 403 });
-		}
+	const token = event.cookies.get(SESSION_COOKIE);
+
+	// Re-implement SvelteKit's origin CSRF check (disabled globally), tightened in #749: a
+	// state-changing request that carries a session cookie must be same-origin whatever its
+	// content type; without one, cross-origin form posts are still refused. The machine
+	// endpoints (CSRF_EXEMPT) authenticate with their own keys and are not checked here.
+	if (
+		!matchesPrefix(event.url.pathname, CSRF_EXEMPT) &&
+		crossSiteRefused(event.request.method, event.request.headers, event.url.origin, !!token)
+	) {
+		return new Response(CROSS_SITE_MESSAGE, { status: 403, headers: { 'content-type': 'text/plain; charset=utf-8' } });
 	}
 
 	const secret = event.platform?.env?.SESSION_SECRET ?? '';
-	const token = event.cookies.get(SESSION_COOKIE);
 	const session = await verifySession(secret, token);
 
 	const db = event.platform?.env?.DB;
@@ -143,6 +143,8 @@ const appHandle: Handle = async ({ event, resolve }) => {
 		user = await findActiveUserById(db, session.userId);
 		// #211: a password set/change/clear signs out every session issued before it.
 		if (user && sessionPredates(session.issuedAt, parseStamp(user.passwordSetAt))) user = null;
+		// #746: sign-out, disable, enable and a role change end every session issued before them.
+		if (user && sessionPredates(session.issuedAt, parseStamp(user.sessionsValidAfter))) user = null;
 		// A session that no longer resolves to an active user (disabled/deleted since
 		// the token was issued) shouldn't linger — clear it so /login doesn't loop.
 		if (!user) event.cookies.delete(SESSION_COOKIE, { path: '/' });

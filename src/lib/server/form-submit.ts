@@ -25,8 +25,8 @@ import { enrollContactsInAutomation } from './automations';
 import { renderAssistantMarkdown } from '$lib/assistant-markdown';
 import { hygieneInvalid } from '$lib/email-hygiene';
 import type { FormRow, SubmissionStatus } from './forms';
-import { recordSubmission } from './forms';
-import { limit, ipHash } from './rate-limit';
+import { HELD_DETAIL, heldColumnsReady, heldSql, isPreMigrationHeldError, recordSubmission, releasableHeldSql } from './forms';
+import { limit, ipHash, clientHash } from './rate-limit';
 import { applyContactFields, applyContactMeta } from './contact-write';
 import { addTagAndEnroll, autoEnroll, syncCompanyMembership } from './contacts';
 import { restoreIfArchived } from './contact-archive';
@@ -35,7 +35,7 @@ import { saveTopicChoicesAndFire } from './subscription-trigger';
 import { getMailProvider, isHardSuppression, type PostmarkMessage } from './mail';
 import type { LegacySend } from './reply-forward';
 import { formatAddress, forwardFallbackAddress, forwardSenderAddress, sendReplyForward } from './reply-forward';
-import { attachFormSubmission, needsConfirmation, requestConfirmation } from './double-optin';
+import { attachFormSubmission, needsConfirmation, requestConfirmation, sqlTime, type DeliveryResult } from './double-optin';
 import { fireFormTriggers } from './form-trigger';
 import { formWebhookSecret, pageUrl, sendFormWebhook } from './form-webhook';
 
@@ -435,7 +435,8 @@ async function requestFormConfirmation(
 	email: string,
 	plan: Plan,
 	baseUrl: string | undefined,
-	ratings: RatingInput[] = []
+	ratings: RatingInput[] = [],
+	defer?: (delivery: Promise<DeliveryResult>) => void
 ): Promise<{ id: number | null; created: boolean; notes: string[]; confirmationId: number | null; appliedNow: boolean }> {
 	const existing = await db.prepare('SELECT id FROM contacts WHERE email = ?').bind(email).first<{ id: number }>();
 	const fields: Record<string, string> = {};
@@ -460,10 +461,11 @@ async function requestFormConfirmation(
 			},
 			contact: { name: c.name || null, first_name: c.first_name || null, last_name: c.last_name || null, company: c.company || null }
 		},
-		baseUrl ? { baseUrl } : {}
+		{ ...(baseUrl ? { baseUrl } : {}), ...(defer ? { defer } : {}) }
 	);
 	const notes: string[] = [];
 	if (res.sent) notes.push('pending confirmation: confirm email sent');
+	else if (res.queued) notes.push('pending confirmation: confirm email queued');
 	else if (res.reason === 'already_subscribed') notes.push('already subscribed: applied without confirmation');
 	else if (res.reason === 'rate_limited') notes.push('pending confirmation: re-send limit reached');
 	else notes.push(`pending confirmation: ${res.reason ?? 'not sent'}${res.error ? ` (${res.error.slice(0, 120)})` : ''}`);
@@ -561,9 +563,11 @@ export async function handleSubmission(
 		user_agent: input.userAgent ?? null
 	};
 
-	// 1. Rate limits (per hashed IP, per form), before any row is stored (#541). A 429 stores nothing.
-	if (hash) {
-		const r = await limit(db, `form:${form.id}:${hash}`, { max: RATE_PER_IP, windowSec: RATE_WINDOW_SEC, now: ctx.now });
+	// 1. Rate limits (per client, per form), before any row is stored (#541). A 429 stores nothing.
+	// #744: a client is its address bucket (IPv6 by its /64), shared with /api/ingest.
+	const client = await clientHash(ctx.ip, env.SESSION_SECRET);
+	if (client) {
+		const r = await limit(db, `form:${form.id}:${client}`, { max: RATE_PER_IP, windowSec: RATE_WINDOW_SEC, now: ctx.now });
 		if (!r.ok) return { ok: false, status: 429, detail: 'rate_limit', error: 'Too many submissions. Please try again in a few minutes.' };
 	}
 	const rf = await limit(db, `form:${form.id}`, { max: RATE_PER_FORM, windowSec: RATE_WINDOW_SEC, now: ctx.now });
@@ -596,6 +600,77 @@ export async function handleSubmission(
 
 	const em = emailField(spec);
 	const email = em && shownIds.has(em.id) ? ((answers[em.key] as string | undefined) ?? null) : null;
+	if (!email && !spec.settings.allow_anonymous) {
+		return { ok: false, status: 400, detail: 'invalid', errors: em ? { [em.key]: 'This question is required.' } : {}, error: 'An email address is required.' };
+	}
+
+	const p = await processSubmission(db, env, form, { email, answers, shown }, ctx, { checkCap: true });
+
+	// #744: over the form's daily send cap: stored as held (nothing written, nothing sent, no
+	// notify / webhook / automations) until an admin releases it; the visitor sees the normal finish.
+	if (p.held) {
+		const id = await recordSubmission(db, {
+			...base,
+			contact_id: null,
+			email,
+			status: 'anonymous',
+			detail: HELD_DETAIL,
+			answers,
+			outcomes: p.fired.map((o) => o.id),
+			held: true
+		});
+		return { ok: true, status: 200, detail: 'held', submissionId: id, ...finishFor(form, answers, { fired: p.fired.map((o) => o.id) }) };
+	}
+
+	// 9. The submission row (the activity feed reads it), with the outcomes that fired (#514).
+	const id = await recordSubmission(db, {
+		...base,
+		contact_id: p.contactId,
+		email,
+		status: p.status,
+		detail: p.notes.join('; ') || null,
+		answers,
+		outcomes: p.fired.map((o) => o.id)
+	});
+	await afterSubmissionRow(db, env, form, p, { id, email, answers, shown, pageUrl: embedPageUrl ?? pageUrl(input.referrer) }, ctx);
+	return { ok: true, status: 200, detail: p.status, submissionId: id, ...finishFor(form, answers, { fired: p.fired.map((o) => o.id) }) };
+}
+
+/** #744: a held submission's `detail` (defined in forms.ts, next to the held predicate). */
+export { HELD_DETAIL };
+
+/** #744: the counter key of a form's sends on one UTC day. */
+export const sendCapKey = (formId: number, now: Date = new Date()) => `form-sends:${formId}:${now.toISOString().slice(0, 10)}`;
+
+type Processed = {
+	held: false;
+	fired: FormOutcome[];
+	actions: FormAction[];
+	status: SubmissionStatus;
+	contactId: number | null;
+	notes: string[];
+	normalWrite: boolean;
+	confirmationId: number | null;
+	appliedNow: boolean;
+	ratings: RatingInput[];
+};
+
+/**
+ * Steps 6–8b of a submission whose answers passed: hygiene, the contact write + outcome actions
+ * (or the confirmation email), `enroll_automation` actions. With `checkCap` (#744), a submission
+ * that would mail a new address counts toward the form's daily send cap (`overSendCap`); over it,
+ * nothing is done (`held: true`). `defer` hands the confirmation email to the caller (a release).
+ */
+async function processSubmission(
+	db: D1Database,
+	env: SubmitEnv,
+	form: FormRow,
+	sub: { email: string | null; answers: Answers; shown: FormField[] },
+	ctx: { mxLookup?: MxLookup; baseUrl?: string; now?: Date; defer?: (delivery: Promise<DeliveryResult>) => void },
+	opts: { checkCap: boolean }
+): Promise<Processed | { held: true; fired: FormOutcome[] }> {
+	const spec = form.spec;
+	const { email, answers, shown } = sub;
 	// #514: outcome rules may read the contact as it was before this submission.
 	let ruleContact: RuleContact | null = null;
 	try {
@@ -619,6 +694,13 @@ export async function handleSubmission(
 	let plan: Plan | null = null;
 
 	if (email) {
+		// 7 + 8. Contact write + outcome actions, or a pending contact + a confirm email (the
+		// actions wait for the confirm) when double opt-in is on for an address that isn't
+		// subscribed, or, whatever that setting, an unsubscribed contact ticks consent (#541).
+		plan = planFor(shown, answers, actions);
+		const route = await confirmationRoute(db, env, form, email, plan);
+		// #744: the daily send cap, before anything is written.
+		if (opts.checkCap && (await overSendCap(db, form, email, route !== null, ctx.now))) return { held: true, fired };
 		// 6. Hygiene: syntax was checked above; disposable / no-MX are tagged, never refused.
 		let hygiene = null;
 		try {
@@ -626,15 +708,10 @@ export async function handleSubmission(
 		} catch {
 			hygiene = null;
 		}
-		// 7 + 8. Contact write + outcome actions — or a pending contact + a confirm email (the
-		// actions wait for the confirm) when double opt-in is on for an address that isn't
-		// subscribed, or, whatever that setting, an unsubscribed contact ticks consent (#541).
-		plan = planFor(shown, answers, actions);
-		const route = await confirmationRoute(db, env, form, email, plan);
 		if (route) notes.push(route);
 		const w =
 			route !== null
-				? await requestFormConfirmation(db, env, form, email, plan, ctx.baseUrl, ratings)
+				? await requestFormConfirmation(db, env, form, email, plan, ctx.baseUrl, ratings, ctx.defer)
 				: await writeContact(db, email, plan, spec.settings.enroll);
 		normalWrite = route === null;
 		if ('confirmationId' in w) {
@@ -652,11 +729,9 @@ export async function handleSubmission(
 				console.error('form hygiene record failed:', e);
 			}
 		}
-	} else if (!spec.settings.allow_anonymous) {
-		return { ok: false, status: 400, detail: 'invalid', errors: em ? { [em.key]: 'This question is required.' } : {}, error: 'An email address is required.' };
 	}
 
-	// 8b. #514: `enroll_automation` actions — only while the form's `settings.enroll` is on, and only
+	// 8b. #514: `enroll_automation` actions, only while the form's `settings.enroll` is on, and only
 	// after a normal contact write (a pending confirmation enrols nobody; `remove_tag` likewise waits
 	// for a normal write).
 	if (plan && plan.automations.size && normalWrite && contactId !== null) {
@@ -672,20 +747,65 @@ export async function handleSubmission(
 			}
 		}
 	}
+	return { held: false, fired, actions, status, contactId, notes, normalWrite, confirmationId, appliedNow, ratings };
+}
 
-	// 9. The submission row (the activity feed reads it), with the outcomes that fired (#514).
-	const id = await recordSubmission(db, {
-		...base,
-		contact_id: contactId,
-		email,
-		status,
-		detail: notes.join('; ') || null,
-		answers,
-		outcomes: fired.map((o) => o.id)
-	});
-	if (normalWrite && contactId !== null && ratings.length) {
+/**
+ * #744: does this submission go over the form's daily send cap (`settings.daily_send_cap`, 0 =
+ * none)? Counted only when it would mail a new address: a confirmation email for an address with
+ * no open confirmation, or a first write of an address the CRM doesn't have yet (the point where
+ * its automations may first mail it). Not counted, and never held: an existing contact's normal
+ * write, and a repeat of an address whose confirmation is still open (pending, not expired; the
+ * re-send limit decides whether it gets another email). Before migration 0139 the cap is off (a
+ * row can't be stored as held). A limiter failure never holds a submission (fails open).
+ */
+async function overSendCap(db: D1Database, form: FormRow, email: string, confirmation: boolean, now?: Date): Promise<boolean> {
+	const cap = form.spec.settings.daily_send_cap;
+	if (!cap) return false;
+	try {
+		if (confirmation) {
+			if (await hasOpenConfirmation(db, email, now ?? new Date())) return false;
+		} else {
+			const known = await db.prepare('SELECT 1 AS x FROM contacts WHERE email = ?').bind(email).first<{ x: number }>();
+			if (known) return false;
+		}
+		const r = await limit(db, sendCapKey(form.id, now), { max: cap, windowSec: 86_400, now });
+		if (r.ok) return false;
+		return await heldColumnsReady(db);
+	} catch (e) {
+		console.error('form send cap check failed:', e);
+		return false;
+	}
+}
+
+/** #744: the address's contact has a confirmation still waiting (the same test as `requestConfirmation`'s re-send). */
+async function hasOpenConfirmation(db: D1Database, email: string, now: Date): Promise<boolean> {
+	const row = await db
+		.prepare(
+			`SELECT 1 AS x FROM subscription_confirmations sc JOIN contacts c ON c.id = sc.contact_id
+			 WHERE c.email = ? AND sc.confirmed_at IS NULL AND sc.cancelled_at IS NULL AND sc.expired_at IS NULL AND sc.expires_at > ?
+			 LIMIT 1`
+		)
+		.bind(email, sqlTime(now))
+		.first<{ x: number }>();
+	return !!row;
+}
+
+/** Steps 9 (ratings) to 11 once the submission row exists (a new row, or a released held one). */
+async function afterSubmissionRow(
+	db: D1Database,
+	env: SubmitEnv,
+	form: FormRow,
+	p: Processed,
+	row: { id: number; email: string | null; answers: Answers; shown: FormField[]; pageUrl: string | null },
+	ctx: { baseUrl?: string; now?: Date; send?: LegacySend; fetch?: typeof fetch; waitUntil?: (p: Promise<unknown>) => void }
+): Promise<void> {
+	const spec = form.spec;
+	const { id, email, answers, shown } = row;
+	const { contactId } = p;
+	if (p.normalWrite && contactId !== null && p.ratings.length) {
 		try {
-			await insertRatings(db, contactId, ratings, id);
+			await insertRatings(db, contactId, p.ratings, id);
 		} catch (e) {
 			console.error('form ratings write failed:', e);
 		}
@@ -698,15 +818,15 @@ export async function handleSubmission(
 	// confirmation's intent and `confirmSubscription` fires them when the person confirms; never
 	// confirmed = never fired. Anonymous submissions never fire. Best-effort: a failure here never
 	// fails the submission.
-	if ((normalWrite || appliedNow) && contactId !== null) {
+	if ((p.normalWrite || p.appliedNow) && contactId !== null) {
 		try {
 			await fireFormTriggers(db, { form: { id: form.id, name: form.name, enroll: spec.settings.enroll }, submissionId: id, contactId, answers }, ctx.now);
 		} catch (e) {
 			console.error('form_submitted trigger failed:', e);
 		}
-	} else if (confirmationId !== null && contactId !== null) {
+	} else if (p.confirmationId !== null && contactId !== null) {
 		try {
-			await attachFormSubmission(db, confirmationId, id);
+			await attachFormSubmission(db, p.confirmationId, id);
 		} catch (e) {
 			console.error('form submission → confirmation link failed:', e);
 		}
@@ -714,7 +834,7 @@ export async function handleSubmission(
 
 	// 10. Notify (best-effort).
 	try {
-		const userIds = [...new Set(actions.flatMap((a) => (a.type === 'notify' ? a.user_ids : [])))];
+		const userIds = [...new Set(p.actions.flatMap((a) => (a.type === 'notify' ? a.user_ids : [])))];
 		await notifySubmission(db, env, form, { id, email, contactId, answers, fields: shown }, { baseUrl: ctx.baseUrl, send: ctx.send, userIds });
 	} catch (e) {
 		console.error('form notify failed:', e);
@@ -739,7 +859,7 @@ export async function handleSubmission(
 						submitted_at: (ctx.now ?? new Date()).toISOString(),
 						// #515's stored host page for an embedded form (there `referrer` is the host page's own
 						// referrer); otherwise the page the visitor came from (#620).
-						page_url: embedPageUrl ?? pageUrl(input.referrer)
+						page_url: row.pageUrl
 					},
 					key,
 					{ fetch: ctx.fetch, now: ctx.now }
@@ -751,6 +871,222 @@ export async function handleSubmission(
 		if (ctx.waitUntil) ctx.waitUntil(work);
 		else await work;
 	}
+}
 
-	return { ok: true, status: 200, detail: status, submissionId: id, ...finishFor(form, answers, { fired: fired.map((o) => o.id) }) };
+export type ReleaseContext = {
+	baseUrl?: string;
+	now?: Date;
+	mxLookup?: MxLookup;
+	send?: LegacySend;
+	fetch?: typeof fetch;
+	waitUntil?: (p: Promise<unknown>) => void;
+	/** The admin releasing it (stored as `released_by`). */
+	userId?: number | null;
+};
+
+export type ReleaseResult =
+	| { ok: true; status: SubmissionStatus }
+	/** `stuck`: the row could not be put back after a failure (it still counts as held). */
+	| { ok: false; status: number; error: string; stuck?: true };
+
+/** #744: what a failed release tells the admin (the row is held again). */
+export const RELEASE_FAILED = 'The release didn’t finish. The submission is still held; try again.';
+
+/** #744: in a held row's `detail`: a release handed a confirmation email off before it failed. */
+export const CONFIRMATION_SENT_NOTE = 'confirmation email sent';
+/** #744: in a held row's `detail`: the last release failed, followed by a short reason. */
+export const RELEASE_FAILED_NOTE = 'release failed:';
+
+/**
+ * #744: a short reason for a failed release, from fixed words only (never the error text, so no
+ * address, token or SQL reaches the row): what kind of failure, and at which step.
+ */
+export function releaseFailureReason(step: string, err: unknown): string {
+	const msg = err instanceof Error ? `${err.message} ${String(err.cause ?? '')}` : String(err);
+	const kind = /time(?:d)? ?out/i.test(msg) ? 'timed out' : /D1_|SQLITE|database|constraint|too many/i.test(msg) ? 'database error' : 'unexpected error';
+	return `${kind} at ${step}`;
+}
+
+/** #744: the `detail` a failed release puts back: still the held shape (`heldSql`), plus what happened. */
+export function failedHeldDetail(reason: string, confirmationSent: boolean): string {
+	const parts = [HELD_DETAIL];
+	if (confirmationSent) parts.push(CONFIRMATION_SENT_NOTE);
+	parts.push(`${RELEASE_FAILED_NOTE} ${reason.slice(0, 80)}`);
+	return parts.join('; ').slice(0, 300);
+}
+
+/**
+ * #744: an admin releases a held submission. It runs now as it would have (contact write or
+ * confirmation email, outcomes, automations, notify, webhook), without the daily cap, from the
+ * stored answers. The row is claimed first (`held_at` cleared, `released_*` stamped), so two clicks
+ * run it once. A row an earlier release claimed and could not put back is held too (`heldSql`) and
+ * can be claimed once that claim is `RELEASE_STALE_MINUTES` old. If the work after the claim fails,
+ * the row is put back held (the `released_*` columns cleared, `detail` saying why and whether a
+ * confirmation email already went) and the result is a failure (500), so it can be released again.
+ * If putting it back fails as well, the result says `stuck`. The confirmation email goes through
+ * `waitUntil` when the request has one (awaited otherwise).
+ */
+export async function releaseHeldSubmission(
+	db: D1Database,
+	env: SubmitEnv,
+	form: FormRow,
+	submissionId: number,
+	ctx: ReleaseContext = {}
+): Promise<ReleaseResult> {
+	type HeldRow = {
+		id: number;
+		email: string | null;
+		answers: string;
+		referrer: string | null;
+		page_url: string | null;
+		held_at: string | null;
+		released_at: string | null;
+		status: SubmissionStatus;
+		contact_id: number | null;
+		detail: string | null;
+		outcomes: string | null;
+	};
+	let row: HeldRow | null;
+	try {
+		row = await db
+			.prepare(
+				`SELECT id, email, answers, referrer, page_url, held_at, released_at, status, contact_id, detail, outcomes
+				 FROM form_submissions WHERE id = ? AND form_id = ? AND ${heldSql()}`
+			)
+			.bind(submissionId, form.id)
+			.first<HeldRow>();
+	} catch (e) {
+		// Before migration 0139 nothing is held.
+		if (!isPreMigrationHeldError(e)) throw e;
+		row = null;
+	}
+	if (!row) return { ok: false, status: 404, error: 'No held submission to release.' };
+	const held = row;
+	const claimed = await db
+		.prepare(`UPDATE form_submissions SET held_at = NULL, released_at = datetime('now'), released_by = ? WHERE id = ? AND ${releasableHeldSql()}`)
+		.bind(ctx.userId ?? null, held.id)
+		.run();
+	if (!(claimed.meta.changes ?? 0)) return { ok: false, status: 409, error: 'This submission is being released or was already released.' };
+
+	// Confirmation emails: handed to waitUntil, or collected and awaited before returning. The
+	// delivery promise never rejects (`deliverConfirmEmail`); a failed send is logged.
+	const deliveries: Promise<void>[] = [];
+	let handedOff = (held.detail ?? '').includes(CONFIRMATION_SENT_NOTE);
+	const defer = (delivery: Promise<DeliveryResult>) => {
+		handedOff = true;
+		const logged = delivery.then(
+			(r) => {
+				if (!r.ok) console.error('released submission: confirmation email failed:', r.error);
+			},
+			(e: unknown) => console.error('released submission: confirmation email failed:', e)
+		);
+		if (ctx.waitUntil) ctx.waitUntil(logged);
+		else deliveries.push(logged);
+	};
+	let step = 'the contact write';
+	try {
+		let answers: Answers = {};
+		try {
+			answers = JSON.parse(held.answers) ?? {};
+		} catch {
+			answers = {};
+		}
+		const shown = formPath(form.spec, answers).fields;
+		const p = (await processSubmission(db, env, form, { email: held.email, answers, shown }, { ...ctx, defer }, { checkCap: false })) as Processed;
+		step = 'saving the result';
+		await db
+			.prepare('UPDATE form_submissions SET contact_id = ?, status = ?, detail = ?, outcomes = ? WHERE id = ?')
+			.bind(p.contactId, p.status, ['released', ...p.notes].join('; ').slice(0, 300), JSON.stringify(p.fired.map((o) => o.id).slice(0, 50)), held.id)
+			.run();
+		step = 'the follow-up steps';
+		await afterSubmissionRow(db, env, form, p, { id: held.id, email: held.email, answers, shown, pageUrl: held.page_url ?? pageUrl(held.referrer) }, ctx);
+		await Promise.all(deliveries);
+		return { ok: true, status: p.status };
+	} catch (e) {
+		console.error('held submission release failed:', e);
+		await Promise.all(deliveries);
+		try {
+			await db
+				.prepare(
+					`UPDATE form_submissions SET held_at = COALESCE(?, ?, datetime('now')), released_at = NULL, released_by = NULL, status = ?, contact_id = ?, detail = ?, outcomes = ?
+					 WHERE id = ?`
+				)
+				.bind(held.held_at, held.released_at, held.status, held.contact_id, failedHeldDetail(releaseFailureReason(step, e), handedOff), held.outcomes, held.id)
+				.run();
+		} catch (e2) {
+			// The row keeps the held shape (`heldSql`), so it is still listed, counted and releasable.
+			console.error('held submission could not be put back:', e2);
+			return { ok: false, status: 500, error: RELEASE_FAILED, stuck: true };
+		}
+		return { ok: false, status: 500, error: RELEASE_FAILED };
+	}
+}
+
+/** #744: most held submissions one "Release all" runs (the page offers to run it again). */
+export const RELEASE_BATCH = 10;
+
+/**
+ * #744: release a form's held submissions, at most `max` (≤ `RELEASE_BATCH`) per call: rows no
+ * release has failed on first, then the ones that failed before, oldest first within each, so a row
+ * that always fails never blocks the rest. A refused or failed row is counted and the rest continue.
+ * When a release throws, or a failed row could not be put back, the loop stops there (`stopped`), so
+ * one request never keeps going against a database that is failing or at its per-request limit.
+ * `remaining` = held rows left afterwards, failed ones included.
+ */
+export async function releaseAllHeld(
+	db: D1Database,
+	env: SubmitEnv,
+	form: FormRow,
+	ctx: ReleaseContext = {},
+	max = RELEASE_BATCH
+): Promise<{ released: number; failed: number; remaining: number; stopped: boolean }> {
+	let ids: { id: number }[];
+	try {
+		ids = (
+			await db
+				.prepare(
+					`SELECT id FROM form_submissions WHERE form_id = ? AND ${releasableHeldSql()}
+					 ORDER BY CASE WHEN instr(IFNULL(detail, ''), ?) > 0 THEN 1 ELSE 0 END, id LIMIT ?`
+				)
+				.bind(form.id, RELEASE_FAILED_NOTE, Math.max(1, Math.min(RELEASE_BATCH, Math.floor(max))))
+				.all<{ id: number }>()
+		).results;
+	} catch (e) {
+		if (!isPreMigrationHeldError(e)) throw e;
+		return { released: 0, failed: 0, remaining: 0, stopped: false };
+	}
+	let released = 0;
+	let failed = 0;
+	let stopped = false;
+	for (const r of ids) {
+		let res: ReleaseResult;
+		try {
+			res = await releaseHeldSubmission(db, env, form, r.id, ctx);
+		} catch (e) {
+			console.error('held submission release failed:', e);
+			failed++;
+			stopped = true;
+			break;
+		}
+		if (res.ok) released++;
+		// 404 / 409: released by someone else meanwhile, not a failure.
+		else if (res.status !== 404 && res.status !== 409) {
+			failed++;
+			if (res.stuck) {
+				stopped = true;
+				break;
+			}
+		}
+	}
+	let remaining: number;
+	try {
+		const left = await db.prepare(`SELECT COUNT(*) AS n FROM form_submissions WHERE form_id = ? AND ${heldSql()}`).bind(form.id).first<{ n: number }>();
+		remaining = left?.n ?? 0;
+	} catch (e) {
+		// After a stop the database may still refuse; the rows not released are a lower bound.
+		if (!stopped) throw e;
+		console.error('held submission count failed:', e);
+		remaining = Math.max(0, ids.length - released);
+	}
+	return { released, failed, remaining, stopped };
 }

@@ -28,7 +28,7 @@ import { RESUB_REFUSED } from './unsubscribe-page';
 import { fireFormTriggersForSubmission } from './form-trigger';
 import { b64urlEncode } from './token';
 import { parseMarkdownPreservingMergeTags } from '$lib/merge-tags';
-import { isEmail } from '$lib/csv';
+import { isEmail, isStoredEmail } from '$lib/csv';
 import {
 	CONFIRM_URL_TAG,
 	DOI_KEY,
@@ -344,6 +344,8 @@ export type RequestResult = {
  * `fields` + name parts in `contact` are written on a new contact only.
  * `keepArchived` (#742): an archived contact stays archived until the link is confirmed
  * (`confirmSubscription` restores it). Without it, asking again restores it at once.
+ * `keepOpenIntent` (#744): a re-send keeps the open confirmation's intent as it is (a caller
+ * whose request body isn't trusted can't replace what the earlier request asked for).
  */
 export async function requestConfirmation(
 	db: D1Database,
@@ -355,12 +357,20 @@ export async function requestConfirmation(
 		source: string;
 		contact?: { name?: string | null; first_name?: string | null; last_name?: string | null; company?: string | null };
 		keepArchived?: boolean;
+		keepOpenIntent?: boolean;
 	},
 	opts: DoiOpts = {}
 ): Promise<RequestResult> {
 	const now = opts.now ?? new Date();
 	const email = input.email.trim().toLowerCase();
-	if (!isEmail(email)) return { sent: false, reason: 'invalid_email' };
+	// #744: an address already on a contact passes the looser check it was stored under (a
+	// re-send for an existing contact); a new address needs the strict one.
+	if (!isEmail(email)) {
+		const stored = isStoredEmail(email)
+			? await db.prepare('SELECT 1 AS x FROM contacts WHERE email = ?').bind(email).first<{ x: number }>()
+			: null;
+		if (!stored) return { sent: false, reason: 'invalid_email' };
+	}
 	const intent = cleanIntent({ ...input.intent, source: input.intent.source ?? input.source });
 
 	let contact = input.contactId
@@ -420,7 +430,13 @@ export async function requestConfirmation(
 		const prev = parseIntent(open.intent);
 		if (prev.resubscribe) intent.resubscribe = true;
 		if (prev.form_submission_id && !intent.form_submission_id) intent.form_submission_id = prev.form_submission_id;
-		await db.prepare('UPDATE subscription_confirmations SET intent = ? WHERE id = ?').bind(JSON.stringify(intent), open.id).run();
+		if (!input.keepOpenIntent) {
+			await db.prepare('UPDATE subscription_confirmations SET intent = ? WHERE id = ?').bind(JSON.stringify(intent), open.id).run();
+		} else if (intent.resubscribe && !prev.resubscribe) {
+			// Only the consent flag this request found (the contact was unsubscribed) is added.
+			prev.resubscribe = true;
+			await db.prepare('UPDATE subscription_confirmations SET intent = ? WHERE id = ?').bind(JSON.stringify(cleanIntent(prev)), open.id).run();
+		}
 		return resendRow(db, env, open, cfg, opts);
 	}
 

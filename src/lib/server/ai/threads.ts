@@ -68,13 +68,13 @@ export async function threadForUser(db: D1Database, threadId: number, userId: nu
 
 /** The panel's history. #387: Draft reply bookkeeping threads (an ai_actions row with tool
  *  `draft_reply`) are left out — they're audit rows, not conversations. #679: so are Ask AI
- *  ones (`editor_ask`). */
+ *  ones (`editor_ask`), and #748 resend subject suggestions (`resend_subject`). */
 export async function listThreads(db: D1Database, userId: number, limit = 30): Promise<ThreadRow[]> {
 	const rows = await db
 		// #310: a thread pruned of its messages (kept only for a younger ai_actions row) is hidden.
 		.prepare(
 			`SELECT * FROM ai_threads WHERE user_id = ? AND EXISTS (SELECT 1 FROM ai_messages m WHERE m.thread_id = ai_threads.id)
-			   AND id NOT IN (SELECT thread_id FROM ai_actions WHERE tool IN ('draft_reply', 'editor_ask'))
+			   AND id NOT IN (SELECT thread_id FROM ai_actions WHERE tool IN ('draft_reply', 'editor_ask', 'resend_subject'))
 			 ORDER BY updated_at DESC, id DESC LIMIT ?`
 		)
 		.bind(userId, limit)

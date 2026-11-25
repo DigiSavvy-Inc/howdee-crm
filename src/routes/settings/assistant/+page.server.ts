@@ -4,21 +4,26 @@ import { getDB } from '$lib/server/db';
 import { listUsers } from '$lib/server/users';
 import {
 	KEY_STORE_MISSING,
+	OPENAI_KEY_FORM_STALE,
+	OpenAiHostChangedError,
+	adoptOpenAiKeyHost,
 	anthropicKeyInfo,
 	cleanAnthropicKey,
 	cleanOpenAiKey,
 	keyStoreReady,
 	openAiKeyInfo,
+	openAiNoKeyMessage,
 	removeAnthropicKey,
 	removeOpenAiKey,
 	resolveAnthropicKey,
 	resolveOpenAiKey,
+	savedOpenAiBaseUrl,
 	setAnthropicKey,
 	setOpenAiKey,
 	testAnthropicKey,
 	testOpenAiKey
 } from '$lib/server/ai/key';
-import { AI_FEATURES, OPENAI_DEFAULT_BASE_URL, baseUrlProblem, modelLinesText, parseModelLines } from '$lib/ai-providers';
+import { AI_FEATURES, OPENAI_DEFAULT_BASE_URL, baseUrlHost, baseUrlProblem, maskUrlCredentials, modelLinesText, parseModelLines } from '$lib/ai-providers';
 import { modelCatalog } from '$lib/server/ai/providers';
 import {
 	ASSISTANT_ACCESS,
@@ -48,14 +53,15 @@ async function accessUsers(db: D1Database) {
 export const load: PageServerLoad = async (event) => {
 	if (event.locals.user?.role !== 'admin') throw error(403, 'Admins only.');
 	const db = getDB(event);
-	const [config, usage, insights, monthSpent, users, key, openaiKey] = await Promise.all([
+	const [config, usage, insights, monthSpent, users, key, openaiKey, savedBaseUrl] = await Promise.all([
 		getAssistantConfig(db),
 		usageByUserMonth(db),
 		usageInsights(db), // #310: per model, top tools, cost per turn, feedback (30 days)
 		spentMicros(db, utcMonthStart(new Date())),
 		accessUsers(db),
 		anthropicKeyInfo(db, event.platform?.env),
-		openAiKeyInfo(db, event.platform?.env)
+		openAiKeyInfo(db, event.platform?.env),
+		savedOpenAiBaseUrl(db)
 	]);
 	// #696: every model the install knows (built-in + the OpenAI-compatible ones), as plain data.
 	const models = modelCatalog(config).map((m) => ({
@@ -73,6 +79,13 @@ export const load: PageServerLoad = async (event) => {
 		openaiKey,
 		openaiModelsText: modelLinesText(config.openai.models),
 		openaiDefaultBaseUrl: OPENAI_DEFAULT_BASE_URL,
+		// #748: a saved base URL that is no longer accepted (e.g. plain http), shown as text so the
+		// admin can see what to fix and prefilled in the form. null when the saved URL is usable. A user
+		// name / password in it never leaves the server (`https://***@host/path`).
+		openaiStoredBaseUrl:
+			openaiKey.baseUrlUnusable && savedBaseUrl
+				? { value: maskUrlCredentials(savedBaseUrl), problem: baseUrlProblem(savedBaseUrl), http: /^http:/i.test(savedBaseUrl) }
+				: null,
 		models,
 		usage,
 		insights,
@@ -121,22 +134,46 @@ export const actions: Actions = {
 		if (urlProblem) return fail(400, { providerError: urlProblem });
 		const parsed = parseModelLines(String(form.get('models') ?? ''));
 		if (parsed.problems.length) return fail(400, { providerError: parsed.problems.join(' ') });
+		// #748: a key follows its host. Order matters, so no other request can bind the key to the new
+		// host in between: (1) a key with no host yet is bound to the base URL stored before this save;
+		// (2) when the host changes, the key is removed; (3) only then is the new config written.
+		// The old host comes from the stored value as it is (an unusable URL has no host, so any new
+		// URL removes the key), never from the cleaned config, which reads an unusable URL as blank.
+		await adoptOpenAiKeyHost(db);
+		const oldHost = baseUrlHost(await savedOpenAiBaseUrl(db));
+		let providerKeyCleared = false;
+		if (baseUrlHost(baseUrl) !== oldHost) providerKeyCleared = await removeOpenAiKey(db);
 		const current = await getAssistantConfig(db);
-		const saved = await saveAssistantConfig(db, {
-			...current,
-			openai: { baseUrl, label: String(form.get('label') ?? ''), models: parsed.models }
-		});
-		return { providerSaved: true, config: saved };
+		// The only save that may change the stored base URL (#748); every other save keeps it as stored.
+		const saved = await saveAssistantConfig(
+			db,
+			{ ...current, openai: { baseUrl, label: String(form.get('label') ?? ''), models: parsed.models } },
+			{ setBaseUrl: true }
+		);
+		return { providerSaved: true, providerKeyCleared, config: saved };
 	},
 
 	setProviderKey: async (event) => {
 		if (event.locals.user?.role !== 'admin') return fail(403, { providerKeyError: 'Admins only.' });
 		const env = event.platform?.env;
 		if (!keyStoreReady(env)) return fail(400, { providerKeyError: 'In-app keys need the MAIL_TOKEN_KEY Worker secret. Ask your operator to set it, or use the OPENAI_API_KEY secret.' });
-		const cleaned = cleanOpenAiKey(String((await event.request.formData()).get('key') ?? ''));
+		const form = await event.request.formData();
+		const cleaned = cleanOpenAiKey(String(form.get('key') ?? ''));
 		if (!cleaned.ok) return fail(400, { providerKeyError: cleaned.error });
-		const { last4 } = await setOpenAiKey(getDB(event), env, cleaned.key, event.locals.user.id);
-		return { providerKeySaved: last4 };
+		const db = getDB(event);
+		// #748: the key is bound to the saved base URL's host, so it must be the host the page showed.
+		const shownHost = String(form.get('base_host') ?? '').trim().toLowerCase();
+		const savedHost = baseUrlHost(await savedOpenAiBaseUrl(db));
+		if (!savedHost) return fail(400, { providerKeyError: openAiNoKeyMessage({ host: null, hostMismatch: false, workerSecretBlocked: false, pinnedHost: '' }) });
+		// A form without the host it was shown for (an old page, a hand-made post): not a host change.
+		if (!shownHost) return fail(400, { providerKeyError: OPENAI_KEY_FORM_STALE });
+		try {
+			const { last4 } = await setOpenAiKey(db, env, cleaned.key, event.locals.user.id, { expectHost: shownHost });
+			return { providerKeySaved: last4 };
+		} catch (e) {
+			if (e instanceof OpenAiHostChangedError) return fail(409, { providerKeyError: e.message });
+			throw e;
+		}
 	},
 
 	removeProviderKey: async (event) => {
@@ -146,14 +183,16 @@ export const actions: Actions = {
 		return { providerKeyRemoved: removed, providerFallback: !!(await resolveOpenAiKey(db, event.platform?.env)) };
 	},
 
-	// GET <base>/models with the key in effect. Global fetch, like testKey.
+	// GET <base>/models with the key in effect for that address (#748). Global fetch, like testKey.
 	testProviderKey: async (event) => {
 		if (event.locals.user?.role !== 'admin') return fail(403, { providerKeyError: 'Admins only.' });
 		const db = getDB(event);
-		const key = await resolveOpenAiKey(db, event.platform?.env);
-		if (!key) return fail(400, { providerKeyError: 'No key is set.' });
+		const env = event.platform?.env;
 		const cfg = await getAssistantConfig(db);
-		const result = await testOpenAiKey(key, cfg.openai.baseUrl || OPENAI_DEFAULT_BASE_URL, fetch);
+		const baseUrl = cfg.openai.baseUrl || OPENAI_DEFAULT_BASE_URL;
+		const key = await resolveOpenAiKey(db, env, baseUrl);
+		if (!key) return fail(400, { providerKeyError: openAiNoKeyMessage(await openAiKeyInfo(db, env, baseUrl)) });
+		const result = await testOpenAiKey(key, baseUrl, fetch);
 		return result.ok ? { providerKeyTest: 'ok' as const } : fail(400, { providerKeyTestError: result.error });
 	},
 

@@ -39,8 +39,10 @@ next section) is the tested one.
    puts a copy of the repository there and builds from it.
 3. Keep the suggested names for the Worker, the D1 database (`DB`) and the R2 bucket (`MEDIA`), or
    change them.
-4. In the one field, `SETUP_TOKEN`, type a phrase only you know. You need it once, in the next
-   section. It's the only value the page asks for: the build generates every other secret.
+4. In the one field, `SETUP_TOKEN`, type a phrase only you know, at least 20 characters. You need
+   it once, in the next section. It's the only value the page asks for: the build generates every
+   other secret. `/setup` refuses a shorter one and says how to change it (in the Cloudflare
+   dashboard: Workers & Pages, the Worker, Settings).
 5. Click **Deploy** and wait for the build to finish (a few minutes). Workers Builds runs
    `npm run deploy`, which is designed to apply the migrations and set the generated secrets.
 
@@ -165,7 +167,8 @@ first step can change or clear it later). Lost the link? Run `npm run deploy -- 
 for a fresh one. Then enter your name, email and a password (12 characters or more). Add a GitHub
 login if you plan to use GitHub sign-in. You're signed in as an admin.
 
-`/setup` answers 404 from then on. You can delete the token:
+`/setup` answers 404 from then on, and Settings → Setup's "First-run setup token" row says the
+secret is no longer needed while it's still set. You can delete the token:
 
 ```sh
 npx wrangler secret delete SETUP_TOKEN
@@ -252,6 +255,10 @@ Replies to your emails can land in the app and be forwarded to your inbox.
 
 Sends now carry a per-recipient Reply-To at the inbound address. Reply capture works with every
 sending provider, so you can use Postmark Inbound while sending through another one.
+
+The per-recipient Reply-To is signed with `SESSION_SECRET`. If you rotate that secret, replies to
+mail sent before the rotation count as untagged: they are still stored and matched by In-Reply-To
+and then by sender.
 
 ## 6. Optional: custom domain
 
@@ -370,6 +377,7 @@ git keeps your change and merges the release around it; a conflict stops the pul
 | `npm run deploy` stops at "more than one account" | Set `CLOUDFLARE_ACCOUNT_ID` to the account to install into and run it again. |
 | `npm run deploy` stops at "Cloudflare refused …" | You're not logged in, or the API token lacks the permission the line names. Run `npx wrangler login`, or add that permission to the token, and run it again. |
 | `/setup` is a 404 | A user already exists. Sign in instead, or reset the database if this is a fresh install. |
+| `/setup` says `SETUP_TOKEN` is too short | It needs at least 20 characters. From a terminal, run `npm run deploy -- --new-setup-token` for a fresh link (or `npx wrangler secret put SETUP_TOKEN` with a longer phrase). With the button, change the `SETUP_TOKEN` secret in the Cloudflare dashboard (Workers & Pages, the Worker, Settings). Then open `/setup` again. |
 | `/setup` says the token is wrong | The setup link was cut off, or you typed a different phrase than on the button page. Run `npm run deploy -- --new-setup-token` for a fresh link, or set a new one with `npx wrangler secret put SETUP_TOKEN`, and try again. |
 | Setup page says the tick hasn't run | Built-in clock: `triggers.crons` is missing from `wrangler.jsonc` (check its `triggers` block and run `npm run deploy`), the Worker was deployed without `npm run build` (the wrap step adds the `scheduled` handler), or no public address is set (the Setup page then has an "App's public address" row). Cloudflare's cron history shows every run as a success; `npx wrangler tail your-crm-worker` logs a failed tick as `automation tick (cron) failed`. Heartbeat Worker: it isn't deployed, its service binding names the wrong Worker, or its `CRON_KEY` differs from the app's. `npx wrangler tail your-crm-heartbeat` shows each tick's result. |
 | Heartbeat logs Cloudflare error 1042 | It's calling the app over its public URL. Use the service binding in `heartbeat/wrangler.jsonc`. |
@@ -475,7 +483,7 @@ Required:
 | `POSTMARK_TOKEN` | The Postmark **Server** API token. You can enter it in Settings → Sending instead. Needed while Postmark is the sending provider. Another provider has its own credentials ([sending-providers.md](sending-providers.md#environment-variables)). |
 | `WEBHOOK_KEY` | Gates the Postmark event webhook. Random string. It goes in the webhook URL (section 4). Required while Postmark is the sending provider. |
 | `INGEST_KEY` | Bearer key for `/api/ingest` and `/api/contacts/upsert`. Random string. A server-to-server secret, fully trusted: never put it in a web page or a form tool's URL. Web forms use a webhook key (Settings → Webhooks) with trust off. |
-| `SETUP_TOKEN` | Lets you create the first admin at `/setup`. Any long random string. Delete it once the admin exists. |
+| `SETUP_TOKEN` | Lets you create the first admin at `/setup`. A long random string, at least 20 characters (`/setup` refuses a shorter one). Delete it once the admin exists; Settings → Setup reminds you. |
 
 ```sh
 npx wrangler secret put SESSION_SECRET

@@ -45,9 +45,13 @@
 			</p>
 			<pre><code>npx wrangler secret put SETUP_TOKEN</code></pre>
 			<p class="muted">
-				Use any long random string. For local development, add <code>SETUP_TOKEN=…</code> to
-				<code>.dev.vars</code> and restart <code>npm run dev</code>. Once the first admin exists this
-				page goes away and the secret can be deleted.
+				Use a long random string, at least 20 characters. For local development, add
+				<code>SETUP_TOKEN=…</code> to <code>.dev.vars</code> and restart <code>npm run dev</code>. Once
+				the first admin exists this page goes away and the secret can be deleted.
+			</p>
+		{:else if data.tokenTooShort}
+			<p class="err" role="alert">
+				{data.tooShort.before}<code>{data.tooShort.command}</code>{data.tooShort.after}
 			</p>
 		{:else}
 			<p class="sub">Create the first admin account. This page goes away once it exists.</p>

@@ -148,12 +148,21 @@
 		show up under Models below, where you allow them.
 	</p>
 	{#if form?.providerError}<p class="err">{form.providerError}</p>{/if}
-	{#if form?.providerSaved}<p class="ok">Provider saved.</p>{/if}
+	{#if data.openaiStoredBaseUrl}
+		<p class="err">
+			{#if data.openaiStoredBaseUrl.http}The saved base URL uses http and is no longer accepted.{:else}The saved base URL is no longer accepted. {data.openaiStoredBaseUrl.problem}{/if}
+			Saved value: <code>{data.openaiStoredBaseUrl.value}</code>. Nothing is sent to it, and no key is used. Change it below
+			(https://, or http:// only for localhost, 127.0.0.1 or [::1]), save, then enter the key again.
+		</p>
+	{/if}
+	{#if form?.providerSaved}
+		<p class="ok">Provider saved.{#if form.providerKeyCleared} The address changed, so the in-app key was removed: paste the key for the new address.{/if}</p>
+	{/if}
 	<form method="POST" action="?/saveProvider" use:enhance={() => async ({ update }) => update({ reset: false })}>
 		<div class="row">
 			<label>
 				Base URL
-				<input name="base_url" type="url" value={cfg.openai.baseUrl} placeholder={data.openaiDefaultBaseUrl} />
+				<input name="base_url" type="url" value={data.openaiStoredBaseUrl?.value ?? cfg.openai.baseUrl} placeholder={data.openaiDefaultBaseUrl} />
 				<span class="hint muted">Blank = {data.openaiDefaultBaseUrl}. Requests go to &lt;base URL&gt;/chat/completions.</span>
 			</label>
 			<label>
@@ -193,7 +202,16 @@
 			<strong>not set</strong>
 		{/if}
 	</p>
+	{#if data.openaiKey.hostMismatch}
+		<p class="muted">The in-app key was saved for a different address, so it isn't sent. Paste the key again for {data.openaiKey.host}.</p>
+	{:else if data.openaiKey.workerSecretBlocked && data.openaiKey.source === null}
+		<p class="muted">
+			The <code>OPENAI_API_KEY</code> Worker secret is only sent to {data.openaiKey.pinnedHost}. Paste a key here, or ask your
+			operator to set <code>OPENAI_BASE_URL_HOST</code>.
+		</p>
+	{/if}
 	<form method="POST" action="?/setProviderKey" autocomplete="off" class="keyform" use:enhance={keyEnhance('pset')}>
+		<input type="hidden" name="base_host" value={data.openaiKey.host ?? ''} />
 		<label>
 			{data.openaiKey.source === 'app' ? 'Replace the in-app key' : 'Paste the API key'}
 			<input type="password" name="key" autocomplete="off" spellcheck="false" required disabled={!data.openaiKey.storeReady} />
@@ -205,9 +223,9 @@
 	</form>
 	<div class="actions">
 		<form method="POST" action="?/testProviderKey" use:enhance={keyEnhance('ptest')}>
-			<button type="submit" class="secondary" disabled={data.openaiKey.source === null || busy !== null}>{busy === 'ptest' ? 'Testing…' : 'Test key'}</button>
+			<button type="submit" class="secondary" disabled={(data.openaiKey.source === null && !data.openaiKey.hostMismatch && !data.openaiKey.workerSecretBlocked) || busy !== null}>{busy === 'ptest' ? 'Testing…' : 'Test key'}</button>
 		</form>
-		{#if data.openaiKey.source === 'app' || data.openaiKey.storedUnusable}
+		{#if data.openaiKey.source === 'app' || data.openaiKey.storedUnusable || data.openaiKey.hostMismatch}
 			<form method="POST" action="?/removeProviderKey" use:enhance={keyEnhance('premove')}>
 				<button type="submit" class="secondary" disabled={busy !== null}>{busy === 'premove' ? 'Removing…' : 'Remove'}</button>
 			</form>

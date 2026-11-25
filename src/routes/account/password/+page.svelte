@@ -21,7 +21,8 @@
 		ok={form && 'pwOk' in form ? (form.pwOk as string) : null}
 	/>
 	<form method="POST" action="/logout" class="signout">
-		<button type="submit" class="secondary small">Sign out</button>
+		<button type="submit" class="secondary small" aria-describedby="signout-note">Sign out</button>
+		<p id="signout-note" class="muted note">Signs you out on every device.</p>
 	</form>
 </section>
 
@@ -30,4 +31,5 @@
 	h1 { margin: 0 0 var(--space-xs); font-size: var(--size-l); line-height: var(--line-l); letter-spacing: var(--letter-spacing-l); }
 	p { margin: 0 0 var(--space-s); font-size: var(--size-s); line-height: var(--line-s); letter-spacing: var(--letter-spacing-s); }
 	.signout { margin: var(--space-m) 0 0; }
+	.signout .note { margin: var(--space-xxs) 0 0; }
 </style>

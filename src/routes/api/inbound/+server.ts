@@ -1,6 +1,8 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { getDB } from '$lib/server/db';
 import { safeEqual } from '$lib/server/auth';
+import { sessionSecret } from '$lib/server/token';
+import { readReplyTag } from '$lib/server/reply-tag';
 import { credentialError, mailSetup } from '$lib/server/mail';
 import { getSettings, parseEmailList } from '$lib/server/settings';
 import { pickInboundText } from '$lib/server/inbound-text';
@@ -30,9 +32,9 @@ import { isInternal } from '$lib/mail-filter';
  * the operator's inbox so replies still land there too.
  *
  * Auth: `?key=<INBOUND_KEY>` (set on the Postmark inbound webhook URL). In PUBLIC_PREFIXES.
- * Correlation: the reply's `MailboxHash` is our per-recipient tag `c<campaignId>r<contactId>`
- * (from the Reply-To we set on sends, #38) → exact campaign + contact. Falls back to
- * matching the sender's email to a contact.
+ * Correlation: the reply's `MailboxHash` is our per-recipient tag (from the Reply-To we set on
+ * sends, #38; signed since #743, `reply-tag.ts`) → exact campaign + contact. Falls back to
+ * In-Reply-To, then to matching the sender's email to a contact.
  */
 export const POST: RequestHandler = async (event) => {
 	// #605: no INBOUND_KEY = reply capture isn't set up. A quiet 404, not a 500.
@@ -114,19 +116,26 @@ export const POST: RequestHandler = async (event) => {
 	const text = picked.text.slice(0, 20000);
 	const raw = JSON.stringify(p).slice(0, 20000);
 
-	// Correlate via MailboxHash: c<campaignId>r<contactId>.
-	const hash = String(p.MailboxHash ?? '');
-	const m = hash.match(/^c(\d+)r(\d+)$/);
+	// Correlate via MailboxHash (#743). A signed tag `c<campaignId>r<contactId>s<sig>` names the
+	// campaign + contact. The older unsigned `c<campaignId>r<contactId>` (mail sent before #743)
+	// counts only when the sender is that contact's address. Anything else is treated as untagged:
+	// In-Reply-To, then the sender's address, decide.
+	const tag = await readReplyTag(sessionSecret(event.platform?.env), String(p.MailboxHash ?? ''));
 	let campaignId: number | null = null;
 	let contactId: number | null = null;
-	if (m) {
-		const cid = Number(m[1]);
-		const rid = Number(m[2]);
-		const camp = await db.prepare('SELECT id FROM campaigns WHERE id = ?').bind(cid).first<{ id: number }>();
-		if (camp) campaignId = camp.id;
-		if (rid > 0) {
-			const con = await db.prepare('SELECT id FROM contacts WHERE id = ?').bind(rid).first<{ id: number }>();
-			if (con) contactId = con.id;
+	if (tag.kind !== 'none') {
+		let trusted = tag.kind === 'signed';
+		if (tag.contactId > 0) {
+			const con = await db
+				.prepare('SELECT id, email FROM contacts WHERE id = ?')
+				.bind(tag.contactId)
+				.first<{ id: number; email: string }>();
+			if (con && tag.kind === 'legacy') trusted = con.email.trim().toLowerCase() === fromEmail;
+			if (con && trusted) contactId = con.id;
+		}
+		if (trusted) {
+			const camp = await db.prepare('SELECT id FROM campaigns WHERE id = ?').bind(tag.campaignId).first<{ id: number }>();
+			if (camp) campaignId = camp.id;
 		}
 	}
 	// In-Reply-To (#157): stored for exact threading. When the MailboxHash tag didn't

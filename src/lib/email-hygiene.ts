@@ -2,7 +2,7 @@
 // domains, disposable domains, role addresses. Universal (the CSV import preview and the
 // server share it). The MX/A lookup lives in $lib/server/hygiene.ts.
 
-import { isEmail } from '$lib/csv';
+import { isEmail, isStoredEmail } from '$lib/csv';
 
 /** Throwaway-inbox domains. `isDisposable` in $lib/server/spam re-exports this check. */
 export const DISPOSABLE_DOMAINS = new Set([
@@ -117,10 +117,14 @@ export function emailDomain(email: string): string {
 	return at < 0 ? '' : email.slice(at + 1).trim().toLowerCase();
 }
 
-/** Everything except the MX lookup. */
-export function checkAddressSync(raw: string): Hygiene {
+/**
+ * Everything except the MX lookup. `stored` (#744): the address is already on a contact (the
+ * pass over existing contacts), so syntax is the looser check it was stored under; a new
+ * address uses the strict `isEmail`.
+ */
+export function checkAddressSync(raw: string, opts: { stored?: boolean } = {}): Hygiene {
 	const email = raw.trim().toLowerCase();
-	const syntax = isEmail(email);
+	const syntax = opts.stored ? isStoredEmail(email) : isEmail(email);
 	const domain = emailDomain(email);
 	const fixed = syntax ? suggestDomain(domain) : null;
 	return {

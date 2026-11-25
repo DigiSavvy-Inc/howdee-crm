@@ -7,6 +7,7 @@
 	import { page } from '$app/state';
 	import { beforeNavigate, invalidateAll, replaceState } from '$app/navigation';
 	import { deserialize, enhance } from '$app/forms';
+	import type { SubmitFunction } from '@sveltejs/kit';
 	import logomark from '$lib/assets/logomark.svg';
 	import Breadcrumbs from '$lib/components/Breadcrumbs.svelte';
 	import Icon from '$lib/components/Icon.svelte';
@@ -283,6 +284,68 @@
 		return `?${u}`;
 	}
 	const csvHref = $derived(`/forms/${data.form.id}/submissions.csv${subQuery({}).replace(/tab=submissions&?/, '')}`);
+	// #744: the held submissions' bulk actions (Release all runs at most 10 per click).
+	type HeldNote = { released: number; failed: number; remaining: number; discarded: number | null; stopped?: boolean };
+	let heldNote = $state<HeldNote | null>(null);
+	let heldBusy = $state(false);
+	function heldNoteText(n: HeldNote): string {
+		if (n.discarded !== null) return `Discarded ${n.discarded.toLocaleString()} held ${n.discarded === 1 ? 'submission' : 'submissions'}.`;
+		const parts = [`Released ${n.released.toLocaleString()}.`];
+		if (n.failed) parts.push(`${n.failed.toLocaleString()} didn’t finish and ${n.failed === 1 ? 'is' : 'are'} still held.`);
+		if (n.stopped) parts.push('Some could not be released, so it stopped early. Try again in a minute.');
+		else if (n.remaining) parts.push(`${n.remaining.toLocaleString()} still held: press the button again to release the next ones.`);
+		return parts.join(' ');
+	}
+	// #744: what a held row says about its past releases (from its detail).
+	function heldInfo(detail: string | null): string[] {
+		const out: string[] = [];
+		for (const part of (detail ?? '').split('; ')) {
+			if (part === 'confirmation email sent') out.push('A confirmation email was already sent.');
+			else if (part.startsWith('release failed:')) out.push(`Last release failed: ${part.slice('release failed:'.length).trim()}.`);
+		}
+		return out;
+	}
+	let heldError = $state<string | null>(null);
+	const failText = (r: { type: string; data?: Record<string, unknown> }) =>
+		r.type === 'failure' ? String(r.data?.error ?? 'That didn’t work.') : r.type === 'error' ? 'That didn’t work. Try again.' : null;
+	const releaseOneEnhance: SubmitFunction = () => {
+		heldError = null;
+		return async ({ result, update }) => {
+			heldError = failText(result);
+			await update();
+		};
+	};
+	const releaseAllEnhance: SubmitFunction = ({ cancel }) => {
+		if (!confirm('Release the held submissions? Up to 10 run now: contacts are written and confirmation or follow-up emails can go out.')) {
+			cancel();
+			return;
+		}
+		heldBusy = true;
+		heldError = null;
+		return async ({ result, update }) => {
+			heldBusy = false;
+			heldError = failText(result);
+			if (result.type === 'success' && result.data) {
+				const d = result.data;
+				heldNote = { released: Number(d.released) || 0, failed: Number(d.failed) || 0, remaining: Number(d.remaining) || 0, discarded: null, stopped: d.stopped === true };
+			}
+			await update();
+		};
+	};
+	const discardEnhance: SubmitFunction = ({ cancel }) => {
+		if (!confirm('Discard every held submission of this form? They are deleted and nothing is sent for them. This can’t be undone.')) {
+			cancel();
+			return;
+		}
+		heldBusy = true;
+		heldError = null;
+		return async ({ result, update }) => {
+			heldBusy = false;
+			heldError = failText(result);
+			if (result.type === 'success' && result.data) heldNote = { released: 0, failed: 0, remaining: 0, discarded: Number(result.data.discarded) || 0 };
+			await update();
+		};
+	};
 	const statusText: Record<string, string> = { added: 'New contact', updated: 'Updated', anonymous: 'Anonymous', spam: 'Spam', rejected: 'Rejected' };
 	const statusLabel = $derived(data.form.status === 'published' ? 'Published' : data.form.status === 'archived' ? 'Archived' : 'Draft');
 	const previewSpec = $derived(normalizeFormSpec($state.snapshot(spec)));
@@ -491,6 +554,7 @@
 				<select name="status" value={data.filter.status === 'ok' ? '' : data.filter.status}>
 					<option value="">Submissions</option>
 					<option value="hidden">Spam & rejected</option>
+					<option value="held">Held (daily send limit)</option>
 				</select>
 			</label>
 			<label>From <input type="date" name="from" value={data.filter.from ?? ''} /></label>
@@ -500,7 +564,23 @@
 			<span class="grow"></span>
 			<a class="export-btn" href={csvHref} download><Icon name="export" size={16} /> Export CSV</a>
 		</form>
-		<p class="muted small">{data.submissionTotal.toLocaleString()} {data.filter.status === 'hidden' ? 'spam / rejected' : 'submissions'}{data.submissionTotal > 5000 ? ' · the CSV holds the newest 5,000' : ''}. Kept {spec.settings.retention_days} days.</p>
+		{#if data.heldCount > 0}
+			<div class="notice warn held-note" role="status">
+				<span>{data.heldCount.toLocaleString()} held: this form reached its daily send limit ({spec.settings.daily_send_cap.toLocaleString()}). Nothing has been sent for {data.heldCount === 1 ? 'it' : 'them'}, unless a row says a confirmation email was sent.</span>
+				{#if data.filter.status !== 'held'}<a href={subQuery({ status: 'held', page: null })}>Review held</a>{/if}
+				{#if data.isAdmin}
+					<form method="POST" action="?/releaseHeld" use:enhance={releaseAllEnhance}>
+						<button type="submit" class="secondary small" disabled={heldBusy}>{heldNote && heldNote.remaining > 0 ? 'Release the next ones' : 'Release all'}</button>
+					</form>
+					<form method="POST" action="?/discardHeld" use:enhance={discardEnhance}>
+						<button type="submit" class="secondary small" disabled={heldBusy}>Discard all held</button>
+					</form>
+				{/if}
+			</div>
+		{/if}
+		{#if heldNote}<p class="small {heldNote.failed ? 'err' : 'muted'}" role="status">{heldNoteText(heldNote)}</p>{/if}
+		{#if heldError}<p class="err" role="alert">{heldError}</p>{/if}
+		<p class="muted small">{data.submissionTotal.toLocaleString()} {data.filter.status === 'hidden' ? 'spam / rejected' : data.filter.status === 'held' ? 'held' : 'submissions'}{data.submissionTotal > 5000 ? ' · the CSV holds the newest 5,000' : ''}. Kept {spec.settings.retention_days} days.</p>
 		{#if data.submissions.length === 0}
 			<p class="muted">Nothing here yet.</p>
 		{:else}
@@ -524,9 +604,19 @@
 									{:else}<span class="muted">{s.email ?? '—'}</span>{/if}
 								</td>
 								{#each firstThree as f (f.id)}<td class="ans">{answerText(s.answers[f.key], f) || '—'}</td>{/each}
-								<td><span class="badge {s.status === 'spam' || s.status === 'rejected' ? 'failed' : 'draft'}" title={s.detail ?? ''}>{statusText[s.status] ?? s.status}</span></td>
+								<td>
+									{#if s.held}<span class="badge sending" title={s.detail ?? ''}>Held</span>
+										{#each heldInfo(s.detail) as line, i (i)}<div class="muted small">{line}</div>{/each}
+									{:else}<span class="badge {s.status === 'spam' || s.status === 'rejected' ? 'failed' : 'draft'}" title={s.detail ?? ''}>{statusText[s.status] ?? s.status}</span>{/if}
+								</td>
 								{#if data.isAdmin}
 									<td class="right">
+										{#if s.held}
+											<form method="POST" action="?/releaseSubmission" use:enhance={releaseOneEnhance}>
+												<input type="hidden" name="submission_id" value={s.id} />
+												<button type="submit" class="secondary small" aria-label="Release submission {s.id}">Release</button>
+											</form>
+										{/if}
 										<form method="POST" action="?/deleteSubmission" use:enhance={({ cancel }) => { if (!confirm('Delete this submission?')) cancel(); }}>
 											<input type="hidden" name="submission_id" value={s.id} />
 											<button type="submit" class="secondary small" aria-label="Delete submission {s.id}">Delete</button>
@@ -624,7 +714,9 @@
 	.nowrap { white-space: nowrap; }
 	.ans { max-width: 28ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 	.right { text-align: right; }
-	.right form { margin: 0; }
+	.right form { margin: 0; display: inline-block; }
+	.held-note { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-s); }
+	.held-note form { margin: 0; }
 	.pager { display: flex; gap: var(--space-m); align-items: center; font-size: var(--size-s); }
 	.savebar { position: sticky; bottom: var(--space-s); margin: var(--space-l) auto 0; max-width: 720px; display: flex; align-items: center; gap: var(--space-s); background: var(--surface); box-shadow: var(--border-shadow-s), 0 8px 24px rgb(0 0 0 / 0.12); border-radius: var(--radius-lg); padding: var(--space-xs) var(--space-xs) var(--space-xs) var(--space-m); z-index: 15; font-size: var(--size-s); }
 	.savebar button { margin-left: auto; }

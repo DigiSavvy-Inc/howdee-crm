@@ -11,6 +11,7 @@ import {
 	ACTION_TYPES,
 	applyPreset,
 	CONTACT_FIELD_LABELS,
+	defaultSettings,
 	FIELD_TYPE_KEYS,
 	FORM_LIMITS,
 	fieldTypeInfo,
@@ -364,7 +365,12 @@ export async function prepareFormSpec(
 				: 'The notify webhook was left out: the assistant can’t set it. Add it yourself on the Settings tab.'
 		);
 	}
-	spec.settings = { ...spec.settings, allowed_origins: [...origins], notify_webhook: hook };
+	// #744: the daily send limit is the form's own too (a new draft gets the default).
+	const sendCap = cur?.settings.daily_send_cap ?? defaultSettings().daily_send_cap;
+	if (asked.daily_send_cap !== undefined && spec.settings.daily_send_cap !== sendCap) {
+		notes.push('The daily send limit was kept as it is: the assistant can’t change it (Settings tab).');
+	}
+	spec.settings = { ...spec.settings, allowed_origins: [...origins], notify_webhook: hook, daily_send_cap: sendCap };
 
 	const invalid = rawPagePaths(validateFormSpec(spec), spec, o.pages);
 	if (invalid.length) return { ok: false, problems: invalid };

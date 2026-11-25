@@ -150,9 +150,25 @@ reports for clicks is never stored; the user agent is. Resend's open events carr
 so an open from Resend is stored with an empty user agent. Resend doesn't say whether an open is
 the first one, so the app works that out itself.
 
-**Sending.** The app sends up to 100 messages per call to `POST /emails/batch`. One invalid message
-fails that whole batch of up to 100, and those rows are marked with Resend's error. Each call
-carries an `Idempotency-Key` and the app's `User-Agent`. When Resend answers 429 (rate limit) or a
+**Sending.** The app sends up to 100 messages per call to `POST /emails/batch`. Resend refuses the
+whole call when one message in it is invalid (a 422 or a 400 `validation_error`). The app splits
+such a batch only when Resend's message is about a recipient address: the `to`, `cc`, `bcc` or
+`reply_to` field. Then it sends each half again, down to single messages. Only the refused message
+is marked with Resend's error, permanently, and the others go out. A bad key, or a problem with a
+field every message shares (the From address, a missing field, an attachment, a header or a tag),
+fails the call once and is not split. A bad key says "Resend rejected the API key" and is not
+permanent.
+
+The split is breadth first: every part of one level is sent before any part is split again, so the
+parts with no bad address go out early. One refused message in 100 costs up to 14 extra calls. Two
+refused messages cost up to 26 extra calls. Splitting stops after 32 calls for one batch of 100
+(`RESEND_SPLIT_MAX_CALLS`), so a batch full of bad addresses can't use up the Worker's outgoing
+requests. The messages left when the limit is reached are the ones in parts Resend still refused.
+They are not sent. Their rows say "Not sent: Resend refused this batch and the limit on resending
+its parts was reached." That is not permanent: they are sent when the campaign is sent again. Only a
+call Resend refused as a whole is split. A call that timed out or ended on a 409, 429 or server
+error is not, and the other parts are still sent. Each call carries an `Idempotency-Key` (a part gets its own, made
+from the batch's key and its place in the batch) and the app's `User-Agent`. When Resend answers 429 (rate limit) or a
 server error, or the connection drops, the same call is retried up to twice with the same key, so
 nothing is sent twice. A 409 `concurrent_idempotent_requests` means an earlier try with that key is
 still being processed: the app waits and asks again with the same key. If the tries run out there,
@@ -160,7 +176,8 @@ the rows say "Resend is still processing this batch; it may have been sent." Tha
 permanent failure. Check the email log in Resend before you send to those rows again.
 
 A quota error (`daily_quota_exceeded` or `monthly_quota_exceeded`) is not retried; the rows say
-which quota was reached. A 422 or a 400 `validation_error` is a permanent refusal. When Resend
+which quota was reached. A 422 or a 400 `validation_error` on a single message is a permanent
+refusal. When Resend
 accepts a batch but returns a different number of ids than messages sent, no id is guessed: the
 rows say the answer could not be matched.
 

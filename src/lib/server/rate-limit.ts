@@ -49,3 +49,31 @@ export async function ipHash(ip: string | null | undefined, secret: string | und
 		.join('')
 		.slice(0, 16);
 }
+
+/**
+ * Rate-limit bucket for a client address: IPv4 as is, IPv6 by its /64 (one host usually owns
+ * a whole /64). Null when there is no address.
+ */
+export function clientBucket(ip: string | null | undefined): string | null {
+	const v = String(ip ?? '').trim().toLowerCase().split('%')[0];
+	if (!v) return null;
+	if (!v.includes(':')) return v;
+	// An IPv4-mapped IPv6 address (::ffff:1.2.3.4) counts as its IPv4 address.
+	if (v.includes('.')) return v.slice(v.lastIndexOf(':') + 1);
+	const [head, tail = ''] = v.split('::');
+	const h = head ? head.split(':') : [];
+	const t = v.includes('::') && tail ? tail.split(':') : [];
+	const groups = v.includes('::') ? [...h, ...Array(Math.max(0, 8 - h.length - t.length)).fill('0'), ...t] : h;
+	return groups
+		.slice(0, 4)
+		.map((g) => (g || '0').replace(/^0+(?=.)/, ''))
+		.join(':') + '::/64';
+}
+
+/**
+ * #744: the rate-limit id of a client: a hash of its address bucket (`clientBucket`: IPv4 as
+ * is, IPv6 by its /64), or null when there is no address.
+ */
+export async function clientHash(ip: string | null | undefined, secret: string | undefined): Promise<string | null> {
+	return ipHash(clientBucket(ip), secret);
+}
