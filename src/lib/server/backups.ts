@@ -70,7 +70,8 @@ export const EXCLUDED_TABLES: { table: string; reason: string }[] = [
  */
 export const REDACTED_COLUMNS: { table: string; column: string; reason: string; restore: 'null' | 'placeholder' }[] = [
 	{ table: 'api_keys', column: 'token_hash', reason: 'API key hashes', restore: 'placeholder' },
-	{ table: 'webhook_keys', column: 'token', reason: 'form webhook keys (plaintext)', restore: 'placeholder' },
+	{ table: 'webhook_keys', column: 'token', reason: 'form webhook keys (plaintext, before #742)', restore: 'placeholder' },
+	{ table: 'webhook_keys', column: 'token_hash', reason: 'form webhook key hashes (#742)', restore: 'null' },
 	{ table: 'mail_accounts', column: 'refresh_blob', reason: 'sealed Gmail refresh tokens', restore: 'placeholder' },
 	{ table: 'users', column: 'password_hash', reason: 'password hashes', restore: 'null' },
 	{ table: 'subscription_confirmations', column: 'token_hash', reason: 'double opt-in link hashes (#510)', restore: 'placeholder' },

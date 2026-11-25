@@ -35,8 +35,8 @@ warning when the last success is more than 36 hours old.
 
 - `integration_secrets` (sealed Timing / GitHub / Anthropic tokens): set them again in Settings.
 - `api_keys.token_hash`: restored as a placeholder that matches no key. Rotate the keys in Settings → API.
-- `webhook_keys.token`: restored as a placeholder. Rotate each key in Settings → Webhooks and paste the
-  new URL into the form tool.
+- `webhook_keys.token` and `webhook_keys.token_hash`: restored as a placeholder and NULL, which match no
+  key. Create a new key in Settings → Webhooks and paste its URL into the form tool.
 - `mail_accounts.refresh_blob`: restored as a placeholder. Disconnect and reconnect Gmail in Settings → Mail.
 - `users.password_hash`: restored as NULL. Users sign in with GitHub or get a new password from an admin.
 - `app_state.luma_webhook_secret`: paste the Luma signing secret into Settings again.

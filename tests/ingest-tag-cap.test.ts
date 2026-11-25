@@ -34,7 +34,7 @@ async function tagsOf(email: string): Promise<string[]> {
 describe('/api/ingest tag cap', () => {
 	it('keeps key defaults plus payload tags up to 25, including `[Interest] …` names verbatim', async () => {
 		await db
-			.prepare("INSERT INTO webhook_keys (label, token, default_list, default_tags) VALUES ('Form', 'wk_cap1', 'Cap list', 'source:page,event:meetup')")
+			.prepare("INSERT INTO webhook_keys (label, token, default_list, default_tags, trust_body) VALUES ('Form', 'wk_cap1', 'Cap list', 'source:page,event:meetup', 1)")
 			.run();
 		const payload = [
 			'pasadena-feedback', 'priority:high', 'workshop:yes', 'team-training', 'level:building-with-claude-code',
@@ -52,7 +52,7 @@ describe('/api/ingest tag cap', () => {
 
 	it('drops tags past the 25th, keeping the earliest (defaults first)', async () => {
 		await db
-			.prepare("INSERT INTO webhook_keys (label, token, default_list, default_tags) VALUES ('Form', 'wk_cap2', 'Cap list', 'k1,k2')")
+			.prepare("INSERT INTO webhook_keys (label, token, default_list, default_tags, trust_body) VALUES ('Form', 'wk_cap2', 'Cap list', 'k1,k2', 1)")
 			.run();
 		const payload = Array.from({ length: 30 }, (_, i) => `t${String(i + 1).padStart(2, '0')}`);
 		const res = await post('wk_cap2', { email: 'cap2@example.com', tags: payload });

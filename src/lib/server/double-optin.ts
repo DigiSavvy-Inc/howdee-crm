@@ -69,10 +69,20 @@ export type ConfirmIntent = {
 	/** #516: the form submission waiting on this confirmation; its "Form submitted" automations
 	 *  start at confirm time. Set by `attachFormSubmission` once the submission row exists. */
 	form_submission_id?: number;
+	/** #742: the sign-up came through a webhook key that does not trust the body. On confirm,
+	 *  `fields` only fill custom fields the contact doesn't have yet; nothing is overwritten. */
+	fields_fill_only?: boolean;
 };
 
 type Deliver = typeof sendCampaignEmail;
-export type DoiOpts = { now?: Date; deliver?: Deliver; baseUrl?: string };
+/** What sending the confirmation email came to. */
+export type DeliveryResult = { ok: true } | { ok: false; error: string };
+/**
+ * `defer` (#742): hand the confirmation email's send to the caller instead of waiting for it
+ * (the caller passes it to the Worker's `waitUntil`). The promise never rejects. The result then
+ * says `queued: true` and the send outcome only reaches the caller through that promise.
+ */
+export type DoiOpts = { now?: Date; deliver?: Deliver; baseUrl?: string; defer?: (delivery: Promise<DeliveryResult>) => void };
 
 type ConfirmationRow = {
 	id: number;
@@ -150,6 +160,7 @@ export function cleanIntent(raw: ConfirmIntent): ConfirmIntent {
 	if (raw.resubscribe) out.resubscribe = true;
 	const sub = Number(raw.form_submission_id);
 	if (Number.isInteger(sub) && sub > 0) out.form_submission_id = sub;
+	if (raw.fields_fill_only) out.fields_fill_only = true;
 	return out;
 }
 
@@ -199,7 +210,24 @@ export async function applyIntent(db: D1Database, contactId: number, intent: Con
 		]);
 		await enrollIn(id);
 	}
-	if (intent.fields) await applyContactMeta(db, contactId, intent.fields);
+	if (intent.fields) {
+		let fields = intent.fields;
+		if (intent.fields_fill_only) {
+			// #742: fill blanks only, the same rule as the direct path of an untrusted key.
+			const prev = await db.prepare('SELECT meta FROM contacts WHERE id = ?').bind(contactId).first<{ meta: string | null }>();
+			let have: Record<string, unknown> = {};
+			try {
+				have = prev?.meta ? JSON.parse(prev.meta) : {};
+			} catch {
+				have = {};
+			}
+			if (!have || typeof have !== 'object') have = {};
+			fields = Object.fromEntries(
+				Object.entries(fields).filter(([k, v]) => v !== null && v !== '' && have[k.trim().slice(0, 50)] === undefined)
+			);
+		}
+		if (Object.keys(fields).length) await applyContactMeta(db, contactId, fields);
+	}
 	if (intent.ratings?.length) await insertRatings(db, contactId, intent.ratings);
 }
 
@@ -216,7 +244,7 @@ async function sendConfirmEmail(
 	email: string,
 	token: string,
 	opts: DoiOpts
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<DeliveryResult> {
 	const { provider: mail, creds } = await mailSetup(db, env);
 	if (!mail) return { ok: false, error: credentialError(creds) ?? 'POSTMARK_TOKEN is not set.' };
 	const cfg = await getDoiConfig(db);
@@ -272,6 +300,21 @@ async function sendConfirmEmail(
 	return ok ? { ok: true } : { ok: false, error: result.firstError ?? 'Postmark refused the email.' };
 }
 
+/** `sendConfirmEmail` as a promise that never rejects (safe to hand to `waitUntil`). */
+function deliverConfirmEmail(
+	db: D1Database,
+	env: DoiEnv,
+	contactId: number,
+	email: string,
+	token: string,
+	opts: DoiOpts
+): Promise<DeliveryResult> {
+	return sendConfirmEmail(db, env, contactId, email, token, opts).catch((e: unknown) => {
+		console.error('confirmation email failed:', e);
+		return { ok: false as const, error: (e instanceof Error ? e.message : 'send failed').slice(0, 300) };
+	});
+}
+
 /** The confirmation email for a confirm URL (merge tags like {{first_name}} stay for send-time personalisation). */
 export function renderConfirmEmail(cfg: DoiConfig, url: string): { html: string; text: string } {
 	const md = cfg.body.split(CONFIRM_URL_TAG).join(url);
@@ -285,6 +328,8 @@ function escapeHtml(s: string): string {
 
 export type RequestResult = {
 	sent: boolean;
+	/** #742: the email was handed to `opts.defer`; its outcome is that promise's. */
+	queued?: boolean;
 	reason?: 'invalid_email' | 'already_subscribed' | 'rate_limited' | 'send_failed';
 	error?: string;
 	contactId?: number;
@@ -297,6 +342,8 @@ export type RequestResult = {
  * confirmation (a re-send: rate-limited, fresh token, newest intent). An already-subscribed
  * contact gets no email — the intent is applied at once (`reason: 'already_subscribed'`).
  * `fields` + name parts in `contact` are written on a new contact only.
+ * `keepArchived` (#742): an archived contact stays archived until the link is confirmed
+ * (`confirmSubscription` restores it). Without it, asking again restores it at once.
  */
 export async function requestConfirmation(
 	db: D1Database,
@@ -307,6 +354,7 @@ export async function requestConfirmation(
 		intent: ConfirmIntent;
 		source: string;
 		contact?: { name?: string | null; first_name?: string | null; last_name?: string | null; company?: string | null };
+		keepArchived?: boolean;
 	},
 	opts: DoiOpts = {}
 ): Promise<RequestResult> {
@@ -344,7 +392,14 @@ export async function requestConfirmation(
 	} else {
 		// Unsubscribed (not yet pending): confirming is their consent to resubscribe.
 		if (!contact.confirm_pending) intent.resubscribe = true;
-		await db.prepare('UPDATE contacts SET confirm_pending = 1, archived_at = NULL WHERE id = ?').bind(contact.id).run();
+		await db
+			.prepare(
+				input.keepArchived
+					? 'UPDATE contacts SET confirm_pending = 1 WHERE id = ?'
+					: 'UPDATE contacts SET confirm_pending = 1, archived_at = NULL WHERE id = ?'
+			)
+			.bind(contact.id)
+			.run();
 	}
 	const contactId = contact.id;
 	const cfg = await getDoiConfig(db);
@@ -378,7 +433,12 @@ export async function requestConfirmation(
 		)
 		.bind(contactId, contact.email, await hashToken(token), input.source.slice(0, 60), JSON.stringify(intent), nowSql, expires, nowSql)
 		.first<{ id: number }>();
-	const sent = await sendConfirmEmail(db, env, contactId, contact.email, token, opts);
+	const delivery = deliverConfirmEmail(db, env, contactId, contact.email, token, opts);
+	if (opts.defer) {
+		opts.defer(delivery);
+		return { sent: false, queued: true, contactId, confirmationId: row!.id };
+	}
+	const sent = await delivery;
 	if (!sent.ok) return { sent: false, reason: 'send_failed', error: sent.error, contactId, confirmationId: row!.id };
 	return { sent: true, contactId, confirmationId: row!.id };
 }
@@ -429,7 +489,12 @@ async function resendRow(db: D1Database, env: DoiEnv, row: ConfirmationRow, cfg:
 		.bind(await hashToken(token), expires, nowSql, row.id, row.resend_count)
 		.run();
 	if (!(claimed.meta.changes ?? 0)) return { sent: false, reason: 'rate_limited', contactId, confirmationId: row.id };
-	const sent = await sendConfirmEmail(db, env, row.contact_id, row.email, token, opts);
+	const delivery = deliverConfirmEmail(db, env, row.contact_id, row.email, token, opts);
+	if (opts.defer) {
+		opts.defer(delivery);
+		return { sent: false, queued: true, contactId, confirmationId: row.id };
+	}
+	const sent = await delivery;
 	if (!sent.ok) return { sent: false, reason: 'send_failed', error: sent.error, contactId, confirmationId: row.id };
 	return { sent: true, contactId, confirmationId: row.id };
 }

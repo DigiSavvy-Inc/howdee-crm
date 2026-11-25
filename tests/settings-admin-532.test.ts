@@ -64,7 +64,7 @@ describe('#532 settings admin gating', () => {
 
 	it('/settings/webhooks: member gets 403 on load and every action', async () => {
 		expect(await status((webhooks.load as any)(ev('/settings/webhooks', member)))).toBe(403);
-		for (const name of ['create', 'update', 'revoke', 'remove']) {
+		for (const name of ['create', 'update', 'setTrust', 'revoke', 'remove']) {
 			const st = await status((webhooks.actions as any)[name](ev(`/settings/webhooks?/${name}`, member, { label: 'k532-m', id: '1' })));
 			expect(st, name).toBe(403);
 		}

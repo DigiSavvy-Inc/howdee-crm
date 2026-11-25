@@ -242,7 +242,7 @@ describe('ingest restores an archived contact', () => {
 
 	it('a form submission un-archives them', async () => {
 		globalThis.fetch = (async () => new Response('', { status: 503 })) as typeof fetch; // DoH fails open
-		await db.prepare("INSERT INTO webhook_keys (label, token, default_list) VALUES ('Form', 'wk_arch', 'Arch list')").run();
+		await db.prepare("INSERT INTO webhook_keys (label, token, default_list, trust_body) VALUES ('Form', 'wk_arch', 'Arch list', 1)").run();
 		const a = await contact('back@example.com');
 		await archiveContacts(db, [a]);
 		const url = 'https://crm.test/api/ingest';

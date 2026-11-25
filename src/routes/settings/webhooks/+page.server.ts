@@ -3,11 +3,15 @@ import type { PageServerLoad } from './$types';
 import { getDB } from '$lib/server/db';
 import { publicBaseUrlFor } from '$lib/server/public-url';
 import { snapshot } from '$lib/server/snapshot';
+import { generateWebhookToken, newKeyColumns } from '$lib/server/webhook-keys';
 
 type KeyRow = {
 	id: number;
 	label: string;
-	token: string;
+	/** The full key, only for an old key not yet moved over to a hash (#742); else null. */
+	token: string | null;
+	token_last4: string | null;
+	trust_body: number;
 	default_list: string | null;
 	default_tags: string | null;
 	source: string | null;
@@ -18,13 +22,6 @@ type KeyRow = {
 	require_confirm: number;
 };
 
-/** 48 hex chars of CSPRNG. */
-function genToken(): string {
-	const b = new Uint8Array(24);
-	crypto.getRandomValues(b);
-	return [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
-}
-
 // #532: admin-only — load AND every action (a member could mint a read_write key / read ingest tokens).
 const isAdmin = (event: { locals: App.Locals }) => event.locals.user?.role === 'admin';
 
@@ -34,7 +31,10 @@ export const load: PageServerLoad = async (event) => {
 
 	const keys = await db
 		.prepare(
-			`SELECT id, label, token, default_list, default_tags, source, created_at, last_used_at, request_count, revoked_at, require_confirm
+			// #742: a hashed key's `token` column is a placeholder — never sent to the page.
+			`SELECT id, label,
+			        CASE WHEN token_hash IS NULL AND revoked_at IS NULL AND substr(token, 1, 9) <> 'redacted:' THEN token END AS token,
+			        token_last4, trust_body, default_list, default_tags, source, created_at, last_used_at, request_count, revoked_at, require_confirm
 			 FROM webhook_keys ORDER BY (revoked_at IS NULL) DESC, created_at DESC`
 		)
 		.all<KeyRow>();
@@ -95,16 +95,18 @@ export const actions: Actions = {
 			: null;
 		if (bookingProblem) return fail(400, { error: bookingProblem });
 
-		const token = genToken();
+		// #742: stored as a hash only; the key is shown once, in this response.
+		const token = generateWebhookToken();
+		const cols = await newKeyColumns(token);
 		const requireConfirm = data.get('require_confirm') === '1' ? 1 : 0; // #510
 		const row = await db
 			.prepare(
-				`INSERT INTO webhook_keys (label, token, default_list, default_tags, source, require_confirm)
-				 VALUES (?, ?, ?, ?, ?, ?) RETURNING id`
+				`INSERT INTO webhook_keys (label, token, token_hash, token_last4, default_list, default_tags, source, require_confirm, trust_body)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0) RETURNING id`
 			)
-			.bind(label, token, defaultList, defaultTags, source, requireConfirm)
+			.bind(label, cols.token, cols.token_hash, cols.token_last4, defaultList, defaultTags, source, requireConfirm)
 			.first<{ id: number }>();
-		return { ok: true, createdId: row?.id };
+		return { ok: true, createdId: row?.id, createdToken: token };
 	},
 
 	// Edit an active key's routing (label stays; token never changes).
@@ -135,13 +137,36 @@ export const actions: Actions = {
 		return { ok: true };
 	},
 
+	// #742: the "trust the body" switch. Turning it on needs `confirm=1` (the page asks first).
+	setTrust: async (event) => {
+		if (!isAdmin(event)) return fail(403, { error: 'Admins only.' });
+		const db = getDB(event);
+		const data = await event.request.formData();
+		const id = Number(data.get('id'));
+		if (!id) return fail(400, { error: 'Missing key.' });
+		const on = data.get('trust') === '1';
+		if (on && data.get('confirm') !== '1') {
+			return fail(400, { error: 'Confirm that this key may choose the list and tags and update existing contacts.' });
+		}
+		await db
+			.prepare('UPDATE webhook_keys SET trust_body = ? WHERE id = ? AND revoked_at IS NULL')
+			.bind(on ? 1 : 0, id)
+			.run();
+		return { ok: true };
+	},
+
 	revoke: async (event) => {
 		if (!isAdmin(event)) return fail(403, { error: 'Admins only.' });
 		const db = getDB(event);
 		const id = Number((await event.request.formData()).get('id'));
 		if (!id) return fail(400, { error: 'Missing key.' });
 		await db
-			.prepare("UPDATE webhook_keys SET revoked_at = datetime('now') WHERE id = ? AND revoked_at IS NULL")
+			// #742: a revoked key never authenticates again — drop any plaintext it still had.
+			.prepare(
+				`UPDATE webhook_keys SET revoked_at = datetime('now'),
+				   token = CASE WHEN token_hash IS NULL THEN 'revoked:' || id ELSE token END
+				 WHERE id = ? AND revoked_at IS NULL`
+			)
 			.bind(id)
 			.run();
 		return { ok: true };

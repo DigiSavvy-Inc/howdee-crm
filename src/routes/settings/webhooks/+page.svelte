@@ -10,6 +10,19 @@
 		return `${data.baseUrl}/api/ingest?key=${token}`;
 	}
 
+	// #742: a hashed key is never shown again — only its last 4 characters.
+	function maskedUrl(last4: string | null): string {
+		return `${data.baseUrl}/api/ingest?key=••••${last4 ?? ''}`;
+	}
+
+	// #742: turning "trust the body" on asks first.
+	function confirmTrust({ cancel }: { cancel: () => void }) {
+		const ok = confirm(
+			'Let this key choose the list and tags, and update the name, company and custom fields of existing contacts?\n\nOnly do this when the key is used from a server, never from a web page: a key in a web page is public.'
+		);
+		if (!ok) cancel();
+	}
+
 	let copied = $state<number | null>(null);
 	let editingKey = $state<number | null>(null);
 	async function copy(id: number, token: string) {
@@ -63,8 +76,31 @@
 	(or <code>confirm: true</code> in the body) a new address gets a double opt-in email first and joins the list and tags only
 	after confirming.
 </p>
+<p class="muted intro">
+	A key used in a web page's form is public: anyone can read it from the page. So by default a key
+	decides the list and tags itself (the form's <code>list</code> and <code>tags</code> are ignored), an
+	existing contact only gets blank fields filled in, and the answer is the same for a new and an existing
+	address. <strong>Trust the form's data</strong> turns that off for one key; use it only for a key that
+	is sent from a server. Keys are stored as a hash: the full URL is shown once, when you create it. A
+	visitor id (<code>dsv_id</code>, site tracking) comes back only for a contact this request created, or
+	when the form sends the <code>dsv</code> link token from our email. Each key and each client address is
+	rate limited.
+</p>
 
 {#if form?.error}<p class="err">{form.error}</p>{/if}
+
+{#if form?.createdToken}
+	{@const created = form.createdToken}
+	<div class="notice ok created" role="status">
+		<p><strong>Webhook created.</strong> Copy its URL now: it is stored as a hash and won't be shown again.</p>
+		<div class="urlrow">
+			<input class="url" readonly value={urlFor(created)} onclick={(e) => (e.target as HTMLInputElement).select()} />
+			<button type="button" class="secondary sm" onclick={() => copy(-1, created)}>
+				{copied === -1 ? 'Copied!' : 'Copy'}
+			</button>
+		</div>
+	</div>
+{/if}
 
 <Modal title="New webhook" bind:open={newOpen}>
 	<form
@@ -100,7 +136,7 @@
 		</label>
 		<button type="submit">Create webhook</button>
 	</form>
-	<p class="muted hint">Contacts arriving through a key get its list + tags — and both fire “added to list/tag” automation triggers. The form can also send its own <code>tags</code> (e.g. from a triage step) — they're merged in.</p>
+	<p class="muted hint">Contacts arriving through a key get its list + tags — and both fire “added to list/tag” automation triggers. A new key ignores the form's own <code>list</code> and <code>tags</code>; turn on “Trust the form's data” on the key (only for a key sent from a server) to merge them in.</p>
 	{#if form?.error}<p class="err">{form.error}</p>{/if}
 </Modal>
 
@@ -119,15 +155,21 @@
 							{#if k.default_tags} · tags: {k.default_tags}{/if}
 							{#if k.source} · source “{k.source}”{/if}
 							{#if k.require_confirm} · requires confirmation{/if}
+							{#if k.trust_body} · trusts the form's data{/if}
 							· {k.request_count} hit{k.request_count === 1 ? '' : 's'}
 							{#if k.last_used_at}· last {k.last_used_at} UTC{:else}· never used{/if}
 						</span>
 					</div>
 					<div class="urlrow">
-						<input class="url" readonly value={urlFor(k.token)} onclick={(e) => (e.target as HTMLInputElement).select()} />
-						<button type="button" class="secondary sm" onclick={() => copy(k.id, k.token)}>
-							{copied === k.id ? 'Copied!' : 'Copy'}
-						</button>
+						{#if k.token}
+							{@const token = k.token}
+							<input class="url" readonly value={urlFor(token)} onclick={(e) => (e.target as HTMLInputElement).select()} />
+							<button type="button" class="secondary sm" onclick={() => copy(k.id, token)}>
+								{copied === k.id ? 'Copied!' : 'Copy'}
+							</button>
+						{:else}
+							<input class="url" readonly value={maskedUrl(k.token_last4)} aria-label="Webhook URL (key hidden)" />
+						{/if}
 						<button type="button" class="secondary sm" onclick={() => (editingKey = editingKey === k.id ? null : k.id)}>
 							{editingKey === k.id ? 'Close' : 'Edit'}
 						</button>
@@ -135,6 +177,27 @@
 							<input type="hidden" name="id" value={k.id} />
 							<button type="submit" class="secondary sm danger-text">Revoke</button>
 						</form>
+					</div>
+					{#if k.token}
+						<p class="muted hint">The full key shows until its next request, then it is stored as a hash and only its last 4 characters show.</p>
+					{/if}
+					<div class="trustrow">
+						{#if k.trust_body}
+							<span class="muted hint">Trusts the form's data: the form may choose the list and tags and update existing contacts. Recommended: turn this off for a key used in a web page.</span>
+							<form method="POST" action="?/setTrust" use:enhance class="inline">
+								<input type="hidden" name="id" value={k.id} />
+								<input type="hidden" name="trust" value="0" />
+								<button type="submit" class="secondary sm">Turn off</button>
+							</form>
+						{:else}
+							<span class="muted hint">The key decides the list and tags; existing contacts only get blank fields filled.</span>
+							<form method="POST" action="?/setTrust" use:enhance={confirmTrust} class="inline">
+								<input type="hidden" name="id" value={k.id} />
+								<input type="hidden" name="trust" value="1" />
+								<input type="hidden" name="confirm" value="1" />
+								<button type="submit" class="secondary sm">Trust the form's data…</button>
+							</form>
+						{/if}
 					</div>
 					{#if editingKey === k.id}
 						<form
@@ -251,6 +314,10 @@
 	}
 	.url { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--size-xs); line-height: var(--line-xs); letter-spacing: var(--letter-spacing-xs); padding: var(--space-xs) var(--space-xs); background: var(--surface); }
 	.inline { margin: 0; display: inline; }
+	.trustrow { display: flex; gap: var(--space-xs); align-items: center; flex-wrap: wrap; margin-top: var(--space-xs); }
+	.trustrow .hint { margin: 0; }
+	.created { margin-bottom: var(--space-m); }
+	.created p { margin: 0; }
 	.kedit { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: var(--space-s); align-items: end; margin: var(--space-s) 0 var(--space-xxs); padding: var(--space-s); background: var(--surface); border: 0; box-shadow: 0 0 0 var(--border-s) var(--border); border-radius: var(--radius); }
 	@media (max-width: 700px) { .kedit { grid-template-columns: 1fr; } }
 	.rm { margin-left: auto; }

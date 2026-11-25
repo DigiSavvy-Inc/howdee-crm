@@ -281,7 +281,30 @@ Each of these is off until you configure it, and each has its own page in Settin
 - **Newsletter archive on your own site:** Settings → Newsletter archive. Add Worker routes for the
   path on your site to `wrangler.jsonc` and list the host in `ARCHIVE_ROUTE_HOSTS`.
 - **Site tracking:** Settings → Tracking. A snippet for your own sites.
-- **Webhook keys** for website forms: Settings → Webhooks.
+- **Webhook keys** for website forms: Settings → Webhooks. A key in a web page is public, so by
+  default a key decides the list and tags itself, an existing contact only gets blank fields filled
+  in, and the answer is the same for a new and an existing address. Turn on **Trust the form's
+  data** only for a key sent from a server. The full key is shown once, when you create it; it is
+  stored as a hash.
+  - **What a key with trust off can still do.** Anyone who has the key can add an address to that
+    key's own list and tags. That can start the automations that key's list or tags trigger. It
+    can't pick another list or tag, change an existing contact's fields, or restore an archived
+    contact. With confirmation asked for, the contact is restored only when the person clicks the
+    link in the email.
+  - **Visitor id.** With trust off, a site tracking visitor id (`dsv_id`) comes back only when the
+    form sends a valid `dsv` link token from an email for that same contact. With trust on, it also
+    comes back for a contact the request created. The `dsv` token is never kept in the request log.
+  - **Rate limits**, per 10 minutes, answered with 429 before anything is stored:
+    600 requests per client address before the key is checked (IPv6 counts by its /64);
+    then 60 per client address and key with trust off, 600 with trust on (a form backend or
+    integration platform sends many people from a few addresses);
+    then 3,000 per key. Only a request that passed the client limits counts toward the key's 3,000,
+    so one busy address can't use up a form's allowance for everyone.
+  - **The `INGEST_KEY` secret is not a form key.** It is a server-to-server secret and fully
+    trusted. Never put it in a web page or in a form tool's URL. A web form uses a webhook key made
+    in Settings → Webhooks with the trust switch off. The env key gets the 3,000 per-key limit only.
+  - **Rolling back.** Once this version has run, webhook keys are stored as hashes. An older version
+    of the app can't read them. Rolling back means making new keys and putting them in your forms.
 - **Data API keys and the MCP server:** Settings → API.
 
 ## 8. Running the install
@@ -451,7 +474,7 @@ Required:
 | `SESSION_SECRET` | Signs sessions and every unsubscribe, tracking and approval token. Long random string. |
 | `POSTMARK_TOKEN` | The Postmark **Server** API token. You can enter it in Settings → Sending instead. Needed while Postmark is the sending provider. Another provider has its own credentials ([sending-providers.md](sending-providers.md#environment-variables)). |
 | `WEBHOOK_KEY` | Gates the Postmark event webhook. Random string. It goes in the webhook URL (section 4). Required while Postmark is the sending provider. |
-| `INGEST_KEY` | Bearer key for `/api/ingest` and `/api/contacts/upsert`. Random string. |
+| `INGEST_KEY` | Bearer key for `/api/ingest` and `/api/contacts/upsert`. Random string. A server-to-server secret, fully trusted: never put it in a web page or a form tool's URL. Web forms use a webhook key (Settings → Webhooks) with trust off. |
 | `SETUP_TOKEN` | Lets you create the first admin at `/setup`. Any long random string. Delete it once the admin exists. |
 
 ```sh
